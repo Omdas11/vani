@@ -1,0 +1,19 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+
+# Local pub package mirror (~80MB) — regenerable, see mirror_pub.py.
+# (pubspec_overrides.yaml IS committed: it pins the mirror paths.)
+.pub_pkgs/
+
+# Gradle
+.gradle/
+**/local.properties
+
+# OS
+.DS_Store
+
+# Release APKs live in releases/ as committed copies of the built artifacts.
