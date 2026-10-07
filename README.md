@@ -4,16 +4,23 @@
 player for **open-licensed music** — real Android app (Flutter), dark
 Material 3 UI, background playback with notification controls.
 
+> **Repo note:** this project was renamed from `Omdas11/opentune` to
+> `Omdas11/vani` (2026-10-07). Old `github.com/Omdas11/opentune` links
+> redirect automatically.
+
 A Spotify-style music player for **open-licensed music** — real Android app
 (Flutter), dark Material 3 UI, background playback with notification controls.
 
 ## Download
 
 Get the APK for your phone from
-**[GitHub Releases](https://github.com/Omdas11/opentune/releases)**
-(all versions: pick the latest, `app-arm64-v8a-release.apk` fits most
+**[GitHub Releases](https://github.com/Omdas11/vani/releases)**
+(all versions: pick the latest — `Vani-v1.3.1-arm64.apk` fits most
 modern phones). Sideload it: allow "Install unknown apps" for your
 browser/file manager when asked, then open the APK to install.
+Tip: check the file name before installing — every release uses
+clear versioned names (e.g. `Vani-v1.3.1-arm64.apk`) so an old
+download can't be mistaken for the new one.
 
 No logins, no ads, no tracking SDKs. Music comes from the
 **Internet Archive** (Creative Commons), your **Google Drive**, or
