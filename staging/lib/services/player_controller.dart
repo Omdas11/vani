@@ -11,6 +11,7 @@ import '../models/track.dart';
 import 'app_settings.dart';
 import 'archive_api.dart';
 import 'drive_source.dart';
+import 'equalizer.dart';
 import 'local_library.dart';
 import 'lyrics_api.dart';
 import 'stats_service.dart';
@@ -18,7 +19,19 @@ import 'stats_service.dart';
 /// Loop modes: 0 = off, 1 = repeat all, 2 = repeat one.
 class PlayerController extends ChangeNotifier {
   final ArchiveApi api = ArchiveApi();
-  final AudioPlayer _player = AudioPlayer();
+
+  /// System equalizer (Android native AudioEffect, via just_audio's
+  /// built-in AndroidEqualizer which forwards through the background
+  /// player's platform channel). Disabled by default; driven by
+  /// EqualizerController once the platform connects.
+  final AndroidEqualizer equalizer = AndroidEqualizer();
+  late final AudioPlayer _player = AudioPlayer(
+    audioPipeline: AudioPipeline(androidAudioEffects: [equalizer]),
+  );
+
+  /// 5-band system equalizer (beta). Initialized fire-and-forget in
+  /// [init]; check [EqualizerController.ready] before showing controls.
+  late final EqualizerController eqc = EqualizerController(equalizer);
 
   List<Track> _queue = [];
   List<int> _order = []; // playback order (shuffled or straight)
@@ -106,6 +119,7 @@ class PlayerController extends ChangeNotifier {
     await settings.load();
     await _loadPersisted();
     stats.init(); // fire-and-forget: stats must never delay startup
+    eqc.init(); // fire-and-forget: retries until the platform connects
   }
 
   @override
@@ -672,12 +686,13 @@ class PlayerController extends ChangeNotifier {
   }
 
   /// Replaces a Drive track's title/artist (Track is immutable).
-  Future<void> updateDriveTrack(Track old, String title, String artist) async {
+  Future<void> updateDriveTrack(Track old, String title, String artist,
+      {String? artworkUrl}) async {
     final i = driveTracks.indexWhere((e) => e.id == old.id);
     if (i < 0) return;
     final t = (title.trim().isEmpty ? old.title : title.trim());
     final a = (artist.trim().isEmpty ? old.artist : artist.trim());
-    driveTracks[i] = old.copyWith(title: t, artist: a);
+    driveTracks[i] = old.copyWith(title: t, artist: a, artworkUrl: artworkUrl);
     notifyListeners();
     await _persist();
   }
@@ -765,7 +780,7 @@ class PlayerController extends ChangeNotifier {
   /// Replaces a local track's metadata (and/or its file path after a
   /// rename). Used by the AI Fixer. Track is immutable so we swap it.
   Future<void> updateLocalTrack(Track old,
-      {String? title, String? artist, String? localPath}) async {
+      {String? title, String? artist, String? localPath, String? artworkUrl}) async {
     final i = localTracks.indexWhere((e) => e.id == old.id);
     if (i < 0) return;
     final t = Track(
@@ -775,7 +790,7 @@ class PlayerController extends ChangeNotifier {
           (artist == null || artist.trim().isEmpty) ? old.artist : artist.trim(),
       license: old.license,
       licenseUrl: old.licenseUrl,
-      artworkUrl: old.artworkUrl,
+      artworkUrl: artworkUrl ?? old.artworkUrl,
       source: old.source,
       streamUrl: old.streamUrl,
       localPath: localPath ?? old.localPath,

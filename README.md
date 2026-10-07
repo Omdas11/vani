@@ -15,11 +15,11 @@ A Spotify-style music player for **open-licensed music** — real Android app
 
 Get the APK for your phone from
 **[GitHub Releases](https://github.com/Omdas11/vani/releases)**
-(all versions: pick the latest — `Vani-v1.3.1-arm64.apk` fits most
+(all versions: pick the latest — `Vani-v1.5.0-arm64.apk` fits most
 modern phones). Sideload it: allow "Install unknown apps" for your
 browser/file manager when asked, then open the APK to install.
 Tip: check the file name before installing — every release uses
-clear versioned names (e.g. `Vani-v1.3.1-arm64.apk`) so an old
+clear versioned names (e.g. `Vani-v1.5.0-arm64.apk`) so an old
 download can't be mistaken for the new one.
 
 No logins, no ads, no tracking SDKs. Music comes from the
@@ -76,14 +76,17 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
   Material 3 Expressive pill dock; the mini player is a floating
   frosted-glass card above it with a thin progress line (tap or swipe
   up to open the full player).
-- **Lyrics** — tap the lyrics icon on Now Playing to look up the song on
-  the free lrclib.net database. Synced (karaoke-style) lyrics
-  auto-scroll and highlight the current line as the song plays; plain
-  unsynced lyrics are shown when no timing data exists. Lookups happen
-  only when you tap (never automatically) and results are cached on
-  your device, so repeat views don't hit the network. Works for both
-  Archive tracks and your Drive songs (it matches on artist/title).
-  "No lyrics found" simply means lrclib doesn't list that song.
+- **Lyrics** — tap the lyrics icon on Now Playing to look up the song.
+  Sources are tried in order: **lrclib.net** (exact match), lrclib
+  free-text search, **KuGou** (synced), then a **web-search fallback**
+  (plain text, clearly labeled — same approach as the Namida player).
+  Synced (karaoke-style) lyrics auto-scroll and highlight the current
+  line as the song plays; plain unsynced lyrics are shown when no
+  timing data exists. Lookups happen only when you tap (never
+  automatically) and results are cached on your device, so repeat views
+  don't hit the network. Works for both Archive tracks and your Drive
+  songs (it matches on artist/title). "No lyrics found" means none of
+  the sources list that song.
 - **Mini player** pinned above the bottom nav while something plays.
 - **Background playback** — `just_audio` + `audio_service` (via
   `just_audio_background`): notification/lock-screen controls, headset
@@ -93,6 +96,18 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
   from the local file.
 - **Persistence** — likes, playlists, downloads, Drive tracks, and
   recently-played all survive restarts via `shared_preferences` (JSON).
+- **Equalizer (beta)** — Settings → Equalizer: system 5-band EQ (your
+  phone's native AudioEffect) with Normal / Bass Boost / Treble / Vocal
+  presets plus full custom control. Gains persist across launches.
+- **FLAC & Opus (beta)** — local/phone imports accept `.flac` and
+  `.opus` (ExoPlayer decodes them); tracks show a small `FLAC β` /
+  `OPUS β` badge. Seeking behavior can vary by device — report issues.
+- **AI Fixer (beta)** — Settings → AI Fixer: clean up messy filenames
+  (`Artist - Title` renames with preview), fix metadata, fetch missing
+  `.lrc` lyrics, and fetch cover art (iTunes / MusicBrainz, no
+  scraping) — single tracks or whole batches, always preview-then-apply.
+  Bring your own key: **Gemini**, **OpenRouter**, or any
+  OpenAI-compatible endpoint. Keys live in secure storage, never logged.
 
 ## My Drive — your own music from Google Drive
 

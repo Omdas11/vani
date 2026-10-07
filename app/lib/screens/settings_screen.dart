@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/app_settings.dart';
 import '../services/player_controller.dart';
+import '../widgets/ai_provider_card.dart';
 import 'ai_fixer_screen.dart';
+import 'equalizer_screen.dart';
 
 /// App settings: music sources, lyrics, navigation dock, appearance,
 /// listening stats, AI Fixer (beta), and about info.
@@ -63,6 +65,7 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => s.setAnimatedBackground(v),
               ),
               const _SectionHeader('Tools'),
+              const AiProviderCard(),
               ListTile(
                 leading: const Icon(Icons.auto_fix_high_outlined,
                     color: Color(0xFF1DB954)),
@@ -74,12 +77,30 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
                 subtitle: const Text(
-                    'Clean up filenames, fix metadata and find lyrics '
-                    'with AI. Uses your own free Gemini API key.'),
+                    'Clean up filenames, fix metadata, fetch lyrics and '
+                    'cover art with AI. Uses your own API key.'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                       builder: (_) => AiFixerScreen(pc: pc)),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.tune_outlined,
+                    color: Color(0xFF1DB954)),
+                title: const Row(
+                  children: [
+                    Text('Equalizer'),
+                    SizedBox(width: 8),
+                    _BetaChip(),
+                  ],
+                ),
+                subtitle: const Text(
+                    'System 5-band equalizer with presets.'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => EqualizerScreen(pc: pc)),
                 ),
               ),
               const _SectionHeader('Listening stats'),

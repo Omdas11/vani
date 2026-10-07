@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../models/track.dart';
 import '../services/archive_api.dart';
 import '../services/player_controller.dart';
@@ -53,8 +54,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vani',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text('Vani',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 30,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            )),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),

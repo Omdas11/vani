@@ -31,13 +31,45 @@ class Track {
   bool get isDriveTrack => source == 'drive';
   bool get isLocalTrack => source == 'local';
 
-  Track copyWith({String? title, String? artist}) => Track(
+  /// Audio format derived from the file extension (local path first,
+  /// then stream URL), e.g. "FLAC", "OPUS", "MP3". Null when unknown.
+  String? get audioFormat {
+    final path =
+        (localPath?.isNotEmpty == true ? localPath! : streamUrl) ?? '';
+    final clean = path.split('?').first;
+    final dot = clean.lastIndexOf('.');
+    if (dot < 0 || dot == clean.length - 1) return null;
+    final ext = clean.substring(dot).toLowerCase();
+    const known = {
+      '.flac',
+      '.opus',
+      '.ogg',
+      '.oga',
+      '.mp3',
+      '.m4a',
+      '.aac',
+      '.wav',
+      '.wma',
+    };
+    return known.contains(ext) ? ext.substring(1).toUpperCase() : null;
+  }
+
+  /// Formats whose playback support is still in early testing (beta).
+  /// ExoPlayer handles FLAC and Opus on Android, but seeking and gapless
+  /// behavior vary by device and container.
+  bool get isBetaFormat {
+    final f = audioFormat;
+    return f == 'FLAC' || f == 'OPUS';
+  }
+
+  Track copyWith({String? title, String? artist, String? artworkUrl}) =>
+      Track(
         id: id,
         title: title ?? this.title,
         artist: artist ?? this.artist,
         license: license,
         licenseUrl: licenseUrl,
-        artworkUrl: artworkUrl,
+        artworkUrl: artworkUrl ?? this.artworkUrl,
         source: source,
         streamUrl: streamUrl,
         localPath: localPath,

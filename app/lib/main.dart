@@ -20,10 +20,20 @@ Future<void> main() async {
   // PlayerController mirrors the app queue into the background player's
   // ConcatenatingAudioSource (see _fillSequence). With a single audio
   // source the system would show play/pause only.
+  //
+  // v1.5.0 notification hardening (notification showed no transport
+  // buttons on device): androidStopForegroundOnPause=false keeps the
+  // foreground service alive across pause/resume (on Android 12+ the
+  // service would otherwise detach and the media session could end up
+  // in a degraded state); explicit icon + brand color so the
+  // MediaStyle notification always has valid assets.
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.opentune.app.channel.audio',
     androidNotificationChannelName: 'Audio playback',
     androidNotificationOngoing: true,
+    androidStopForegroundOnPause: false,
+    androidNotificationIcon: 'mipmap/ic_launcher',
+    notificationColor: const Color(0xFF1DB954),
   );
   final pc = PlayerController();
   await pc.init();

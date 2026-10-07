@@ -5,11 +5,18 @@ import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/ai_fixer.dart';
 import '../services/player_controller.dart';
+import '../widgets/ai_provider_card.dart';
 
-/// "AI Fixer (BETA)" — uses the user's own free Gemini API key (called
-/// directly from the phone) to clean local/Drive filenames and metadata,
-/// then optionally re-checks lyrics with the corrected metadata.
-/// Every AI suggestion is previewed; the user picks which ones to apply.
+/// "AI Fixer (BETA)" — cleans up local/Drive track filenames and metadata
+/// with the user's own AI provider key (called directly from the phone),
+/// re-checks lyrics with the corrected metadata, and fetches cover art
+/// from free keyless sources (iTunes, then MusicBrainz + Cover Art
+/// Archive).
+///
+/// Every suggestion is previewed first (before → after per track, with a
+/// per-track checkbox); nothing changes until "Apply selected" is tapped.
+/// Provider + key management lives in [AiProviderCard], which is also
+/// embedded in Settings.
 class AiFixerScreen extends StatefulWidget {
   final PlayerController pc;
   const AiFixerScreen({super.key, required this.pc});
@@ -18,29 +25,29 @@ class AiFixerScreen extends StatefulWidget {
   State<AiFixerScreen> createState() => _AiFixerScreenState();
 }
 
-/// One track's proposed AI changes, built during analysis.
+/// One track's proposed changes, built during analysis.
 class _FixProposal {
   final Track track;
   String? newFilename; // basename only, local tracks
   String? newTitle;
   String? newArtist;
   bool? lyricsFound; // null when the lyrics task was off
+  bool? coverFound; // null when the cover task was off
+  String? coverPath; // downloaded preview image (docs dir)
+  bool driveRenameSkipped = false;
   String? error; // per-row failure message
   bool include; // user checkbox for Apply
   _FixProposal(this.track, {this.include = true});
 
   bool get hasChanges =>
-      newFilename != null || newTitle != null || newArtist != null;
+      newFilename != null ||
+      newTitle != null ||
+      newArtist != null ||
+      coverPath != null;
 }
 
 class _AiFixerScreenState extends State<AiFixerScreen> {
   late final AiFixer _fixer;
-
-  // Key section.
-  final TextEditingController _keyCtrl = TextEditingController();
-  bool _hasKey = false;
-  bool _keyBusy = false;
-  String? _keyStatus;
 
   // Track source selection: 0 = single, 1 = batch.
   int _mode = 0;
@@ -51,6 +58,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   bool _taskFilenames = true;
   bool _taskMetadata = true;
   bool _taskLyrics = false;
+  bool _taskCover = false;
 
   // Analyze / apply state.
   bool _analyzing = false;
@@ -63,14 +71,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   void initState() {
     super.initState();
     _fixer = AiFixer();
-    _refreshKeyState();
     _single = _defaultSingle();
-  }
-
-  @override
-  void dispose() {
-    _keyCtrl.dispose();
-    super.dispose();
   }
 
   /// All tracks this screen can work on: local + drive only.
@@ -90,51 +91,6 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
     return _eligible.where((t) => _batchIds.contains(t.id)).toList();
   }
 
-  Future<void> _refreshKeyState() async {
-    final has = await _fixer.hasKey();
-    if (!mounted) return;
-    setState(() => _hasKey = has);
-  }
-
-  Future<void> _saveKey() async {
-    final value = _keyCtrl.text.trim();
-    if (value.isEmpty) {
-      setState(() => _keyStatus = 'Paste your key first, then tap Save.');
-      return;
-    }
-    setState(() {
-      _keyBusy = true;
-      _keyStatus = null;
-    });
-    try {
-      await _fixer.setKey(value);
-      _keyCtrl.clear();
-      await _refreshKeyState();
-      if (mounted) setState(() => _keyStatus = 'Key saved on this device.');
-    } catch (_) {
-      if (mounted) {
-        setState(() => _keyStatus = 'Could not save the key. Try again.');
-      }
-    } finally {
-      if (mounted) setState(() => _keyBusy = false);
-    }
-  }
-
-  Future<void> _clearKey() async {
-    setState(() => _keyBusy = true);
-    try {
-      await _fixer.clearKey();
-      await _refreshKeyState();
-      if (mounted) setState(() => _keyStatus = 'Key removed.');
-    } catch (_) {
-      if (mounted) {
-        setState(() => _keyStatus = 'Could not remove the key. Try again.');
-      }
-    } finally {
-      if (mounted) setState(() => _keyBusy = false);
-    }
-  }
-
   static String _basename(String path) {
     final i = path.lastIndexOf('/');
     return i < 0 ? path : path.substring(i + 1);
@@ -149,16 +105,22 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
       e is AiFixerException ? e.message : 'Failed: ${e.toString()}';
 
   bool get _canAnalyze =>
-      _hasKey &&
       !_analyzing &&
-      (_taskFilenames || _taskMetadata || _taskLyrics) &&
+      (_taskFilenames || _taskMetadata || _taskLyrics || _taskCover) &&
       _selectedTracks().isNotEmpty;
 
   Future<void> _analyze() async {
+    if (!await _fixer.hasKey()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Save an API key in the AI provider card first.')));
+      return;
+    }
     final tracks = _selectedTracks();
     final doFilenames = _taskFilenames;
     final doMetadata = _taskMetadata;
     final doLyrics = _taskLyrics;
+    final doCover = _taskCover;
     setState(() {
       _analyzing = true;
       _progressDone = 0;
@@ -169,12 +131,18 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
     for (var i = 0; i < _proposals.length; i++) {
       final p = _proposals[i];
       try {
-        if (doFilenames && p.track.isLocalTrack && p.track.localPath != null) {
-          final name = _basename(p.track.localPath!);
-          final fix = await _fixer.fixFilename(name);
-          final cleaned = fix['filename'];
-          if (cleaned != null && cleaned != name) {
-            p.newFilename = cleaned;
+        if (doFilenames) {
+          if (p.track.isLocalTrack && p.track.localPath != null) {
+            final name = _basename(p.track.localPath!);
+            final fix = await _fixer.fixFilename(name);
+            final cleaned = fix['filename'];
+            if (cleaned != null && cleaned != name) {
+              p.newFilename = cleaned;
+            }
+          } else if (p.track.isDriveTrack) {
+            // Drive files live on Google's servers; the app only holds
+            // stream URLs, so there is nothing on-device to rename.
+            p.driveRenameSkipped = true;
           }
         }
         if (doMetadata) {
@@ -185,16 +153,42 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           if (t != null && t != p.track.title) p.newTitle = t;
           if (a != null && a != p.track.artist) p.newArtist = a;
         }
+        final effArtist = p.newArtist ?? p.track.artist;
+        final effTitle = p.newTitle ?? p.track.title;
         if (doLyrics) {
           final res = await widget.pc.fetchLyricsOverride(
             p.track,
-            p.newArtist ?? p.track.artist,
-            p.newTitle ?? p.track.title,
+            effArtist,
+            effTitle,
           );
           p.lyricsFound = res.found;
+          if (res.found) {
+            // Also cache under the player-sheet identity so the lyrics
+            // show up in the player without another lookup.
+            await widget.pc.lyricsCache
+                .put(widget.pc.lyricsIdentity(p.track), res);
+          }
         }
-        // Nothing proposed and no lyrics result → deselect by default.
-        if (!p.hasChanges && p.lyricsFound != true) {
+        if (doCover) {
+          final url = await CoverArt.findArtworkUrl(
+            artist: effArtist,
+            title: effTitle,
+          );
+          if (url != null) {
+            final dir = await CoverArt.artworkDir();
+            final dest = '${dir.path}/${CoverArt.fileNameForId(p.track.id)}';
+            if (await CoverArt.download(url, dest)) {
+              p.coverPath = dest;
+              p.coverFound = true;
+            } else {
+              p.coverFound = false;
+            }
+          } else {
+            p.coverFound = false;
+          }
+        }
+        // Nothing proposed and no lyrics/cover result → deselect.
+        if (!p.hasChanges && p.lyricsFound != true && p.coverFound != true) {
           p.include = false;
         }
       } catch (e) {
@@ -208,7 +202,6 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   bool get _canApply =>
-      _hasKey &&
       !_applying &&
       !_analyzing &&
       _proposals.any((p) => p.include && p.error == null);
@@ -218,6 +211,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
     var renamed = 0;
     var metadata = 0;
     var lyricsOk = 0;
+    var covers = 0;
     for (final p in _proposals) {
       if (!p.include || p.error != null) continue;
       try {
@@ -233,8 +227,8 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           }
           await File(oldPath).rename(newPath);
           // One call updates both the renamed path and any metadata fix.
-          await widget.pc
-              .updateLocalTrack(p.track, localPath: newPath, title: t, artist: a);
+          await widget.pc.updateLocalTrack(p.track,
+              localPath: newPath, title: t, artist: a);
           renamed++;
           if (t != null || a != null) metadata++;
         } else if (t != null || a != null) {
@@ -247,6 +241,10 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           metadata++;
         }
         if (p.lyricsFound == true) lyricsOk++;
+        if (p.coverPath != null && File(p.coverPath!).existsSync()) {
+          await _attachArtwork(p);
+          covers++;
+        }
         p.include = false; // applied
       } catch (e) {
         p.error = e is String ? e : _errorText(e);
@@ -260,8 +258,38 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
     if (renamed > 0) bits.add('$renamed renamed');
     if (metadata > 0) bits.add('$metadata metadata fixed');
     if (lyricsOk > 0) bits.add('lyrics found for $lyricsOk');
-    final summary = bits.isEmpty ? 'Nothing applied.' : 'Done: ${bits.join(', ')}.';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(summary)));
+    if (covers > 0) bits.add('cover art attached to $covers');
+    final summary =
+        bits.isEmpty ? 'Nothing applied.' : 'Done: ${bits.join(', ')}.';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(summary)));
+  }
+
+  /// Attaches the downloaded cover image to the track using only the
+  /// controller's public API (this screen may not edit the controller).
+  ///
+  /// WORKAROUND, documented for the parent: PlayerController has no
+  /// artworkUrl parameter on updateLocalTrack/updateDriveTrack, so this
+  /// swaps the track list entry for one carrying the new artworkUrl and
+  /// then calls the existing update method — which rebuilds the track
+  /// from the swapped entry (preserving artworkUrl) and persists it.
+  /// The recommended permanent fix is to add `{String? artworkUrl}` to
+  /// both update methods (and to Track.copyWith in models/track.dart);
+  /// then this can pass the path directly instead of swapping.
+  ///
+  /// NOTE: the artwork widgets (TrackArt, VinylRecord) currently render
+  /// via Image.network, so a local file path only displays after they
+  /// learn to use FileImage for paths starting with '/'.
+  Future<void> _attachArtwork(_FixProposal p) async {
+    final path = p.coverPath!;
+    final pc = widget.pc;
+    if (p.track.isLocalTrack) {
+      await pc.updateLocalTrack(p.track, artworkUrl: path);
+    } else if (p.track.isDriveTrack) {
+      await pc.updateDriveTrack(
+          p.track, p.track.title, p.track.artist,
+          artworkUrl: path);
+    }
   }
 
   @override
@@ -282,7 +310,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             children: [
               _buildExplainer(),
               const SizedBox(height: 12),
-              _buildKeyCard(),
+              const AiProviderCard(),
               const SizedBox(height: 12),
               _buildSourceCard(eligible),
               const SizedBox(height: 12),
@@ -311,71 +339,12 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Text(
-          'Uses your own free Gemini API key, called directly from your '
-          'phone. Nothing is uploaded anywhere except Google\'s Gemini API. '
-          'AI suggestions are previewed first — nothing changes until you '
-          'tap "Apply selected".',
+          'Uses your own AI provider key, called directly from your '
+          'phone — pick Gemini, OpenRouter, or a custom OpenAI-compatible '
+          'endpoint below. Cover art comes from the iTunes Search API '
+          'and MusicBrainz (no scraping). AI suggestions are previewed '
+          'first — nothing changes until you tap "Apply selected".',
           style: TextStyle(color: Colors.grey[300], height: 1.4),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKeyCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Gemini API key',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            const SizedBox(height: 4),
-            Text(
-              'Get a free key at Google AI Studio (aistudio.google.com). '
-              'The key is stored securely on this phone and never shown.',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12.5),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _keyCtrl,
-              obscureText: true,
-              enableSuggestions: false,
-              autocorrect: false,
-              decoration: const InputDecoration(
-                hintText: 'Paste your Gemini API key',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                ElevatedButton(
-                  onPressed: _keyBusy ? null : _saveKey,
-                  child: const Text('Save'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: (_keyBusy || !_hasKey) ? null : _clearKey,
-                  child: const Text('Clear'),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _keyStatus ??
-                        (_hasKey
-                            ? '✓ Key saved — analysis enabled.'
-                            : 'No key saved.'),
-                    style: TextStyle(
-                      color: _hasKey ? Colors.green : Colors.grey[400],
-                      fontSize: 12.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );
@@ -400,7 +369,10 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
               onSelectionChanged: (s) => setState(() => _mode = s.first),
             ),
             const SizedBox(height: 8),
-            if (_mode == 0) _buildSingleDropdown(eligible) else _buildBatchList(eligible),
+            if (_mode == 0)
+              _buildSingleDropdown(eligible)
+            else
+              _buildBatchList(eligible),
           ],
         ),
       ),
@@ -419,11 +391,13 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           ? eligible.firstWhere((t) => t.id == _single!.id)
           : null,
       items: eligible
-          .map((t) => DropdownMenuItem(value: t, child: Text(_trackLabel(t), overflow: TextOverflow.ellipsis)))
+          .map((t) => DropdownMenuItem(
+              value: t,
+              child: Text(_trackLabel(t), overflow: TextOverflow.ellipsis)))
           .toList(),
       onChanged: (t) => setState(() => _single = t),
-      decoration: const InputDecoration(
-          border: OutlineInputBorder(), isDense: true),
+      decoration:
+          const InputDecoration(border: OutlineInputBorder(), isDense: true),
       isExpanded: true,
     );
   }
@@ -437,8 +411,8 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
         Row(
           children: [
             TextButton(
-              onPressed: () => setState(() =>
-                  _batchIds.addAll(eligible.map((t) => t.id))),
+              onPressed: () =>
+                  setState(() => _batchIds.addAll(eligible.map((t) => t.id))),
               child: const Text('Select all'),
             ),
             TextButton(
@@ -455,8 +429,8 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(t.title, overflow: TextOverflow.ellipsis),
-            subtitle: Text(
-                '${t.isLocalTrack ? 'phone' : 'Drive'} · ${t.artist}'),
+            subtitle:
+                Text('${t.isLocalTrack ? 'phone' : 'Drive'} · ${t.artist}'),
             value: _batchIds.contains(t.id),
             onChanged: (v) => setState(() {
               if (v == true) {
@@ -487,8 +461,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
               subtitle: const Text(
                   'Local tracks only — renames the actual file on your phone.'),
               value: _taskFilenames,
-              onChanged: (v) =>
-                  setState(() => _taskFilenames = v ?? false),
+              onChanged: (v) => setState(() => _taskFilenames = v ?? false),
             ),
             CheckboxListTile(
               dense: true,
@@ -504,9 +477,18 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Find lyrics'),
               subtitle: const Text(
-                  'Re-checks lrclib with the corrected metadata (local + Drive).'),
+                  'Re-checks lyrics with the corrected metadata (local + Drive).'),
               value: _taskLyrics,
               onChanged: (v) => setState(() => _taskLyrics = v ?? false),
+            ),
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fetch cover art'),
+              subtitle: const Text(
+                  'iTunes, then MusicBrainz — saved on-device (local + Drive).'),
+              value: _taskCover,
+              onChanged: (v) => setState(() => _taskCover = v ?? false),
             ),
           ],
         ),
@@ -522,11 +504,11 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           onPressed: _canAnalyze ? _analyze : null,
           child: Text(_analyzing ? 'Analyzing…' : 'Analyze'),
         ),
-        if (!_hasKey)
+        if (_selectedTracks().isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-              'Save your Gemini API key above to enable analysis.',
+              'Pick at least one track above.',
               style: TextStyle(color: Colors.amber[200], fontSize: 12.5),
             ),
           ),
@@ -574,29 +556,71 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             if (p.newFilename != null)
               _changeRow('Filename', _basename(p.track.localPath ?? ''),
                   p.newFilename!),
+            if (p.driveRenameSkipped)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('Filename: Drive files can’t be renamed on-device.',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12.5)),
+              ),
             if (p.newTitle != null)
               _changeRow('Title', p.track.title, p.newTitle!),
             if (p.newArtist != null)
               _changeRow('Artist', p.track.artist, p.newArtist!),
-            if (!p.hasChanges && p.error == null)
-              Text(
-                p.lyricsFound == true
-                    ? 'No changes needed.'
-                    : 'No changes suggested.',
-                style: TextStyle(color: Colors.grey[500], fontSize: 12.5),
-              ),
-            if (p.lyricsFound != null)
+            if (p.coverPath != null)
               Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Chip(
-                  label: Text(p.lyricsFound! ? 'Lyrics found' : 'No lyrics',
-                      style: const TextStyle(fontSize: 11.5)),
-                  backgroundColor: p.lyricsFound!
-                      ? Colors.green.withValues(alpha: 0.25)
-                      : Colors.grey.withValues(alpha: 0.25),
-                  visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.file(
+                        File(p.coverPath!),
+                        width: 52,
+                        height: 52,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.broken_image),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Cover art → saved on-device',
+                          style: TextStyle(
+                              color: Colors.green,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ],
                 ),
               ),
+            if (!p.hasChanges && p.error == null)
+              Text(
+                'No changes suggested.',
+                style: TextStyle(color: Colors.grey[500], fontSize: 12.5),
+              ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                if (p.lyricsFound != null)
+                  Chip(
+                    label: Text(p.lyricsFound! ? 'Lyrics found' : 'No lyrics',
+                        style: const TextStyle(fontSize: 11.5)),
+                    backgroundColor: p.lyricsFound!
+                        ? Colors.green.withValues(alpha: 0.25)
+                        : Colors.grey.withValues(alpha: 0.25),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                if (p.coverFound != null && p.coverPath == null)
+                  Chip(
+                    label: const Text('No cover found',
+                        style: TextStyle(fontSize: 11.5)),
+                    backgroundColor: Colors.grey.withValues(alpha: 0.25),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
             if (p.error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),

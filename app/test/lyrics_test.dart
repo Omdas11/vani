@@ -207,4 +207,122 @@ void main() {
       expect(c.source, 'drive');
     });
   });
+
+  group('lrclib free-text search', () {
+    test('builds a q= URL from title + artist', () {
+      final url = LyricsApi.lrclibSearchUrl(
+          artist: 'Lagnajita Chakraborty', title: 'Eto J Nithur Bondhu');
+      expect(url, startsWith('https://lrclib.net/api/search?q='));
+      expect(url, contains('Eto%20J%20Nithur%20Bondhu'));
+    });
+
+    test('returns empty when nothing to query', () {
+      expect(LyricsApi.lrclibSearchUrl(title: 'Unknown title'), isEmpty);
+      expect(LyricsApi.lrclibSearchUrl(), isEmpty);
+    });
+  });
+
+  group('Google fallback (Namida approach)', () {
+    test('query variants are tried in Namida order', () {
+      final qs = LyricsApi.googleQueryVariants(
+          artist: 'Mekhla Dasgupta', title: 'Tomar Ghore - Live');
+      expect(qs.length, 3);
+      expect(qs[0], '"Tomar Ghore - Live by Mekhla Dasgupta lyrics"');
+      expect(qs[1], '"Tomar Ghore by Mekhla Dasgupta lyrics"');
+      expect(qs[2], '"Tomar Ghore - Live by Mekhla Dasgupta song lyrics"');
+    });
+
+    test('no artist still yields queries', () {
+      final qs = LyricsApi.googleQueryVariants(
+          artist: 'Unknown artist', title: 'Amar Bhitor');
+      expect(qs.first, '"Amar Bhitor lyrics"');
+    });
+
+    test('empty title yields no queries', () {
+      expect(LyricsApi.googleQueryVariants(title: ''), isEmpty);
+    });
+
+    test('search URL carries the safari client params', () {
+      final url = LyricsApi.googleSearchUrl('"x by y lyrics"');
+      expect(url, startsWith('https://www.google.com/search?'));
+      expect(url, contains('client=safari'));
+      expect(url, contains(Uri.encodeComponent('"x by y lyrics"')));
+    });
+
+    test('extracts lyrics between the knowledge-panel markers', () {
+      const html = '<div class="hwc"><span>Line one<br>Line two</span>'
+          '</div><div class="BNeawe tAd8D AP7Wnd">footer</div>';
+      final text = LyricsApi.extractGoogleLyrics(html);
+      expect(text, isNotNull);
+      expect(text, contains('Line one'));
+      expect(text, contains('Line two'));
+    });
+
+    test('returns null when markers are absent', () {
+      expect(
+          LyricsApi.extractGoogleLyrics('<html><body>nope</body></html>'),
+          isNull);
+    });
+
+    test('detects block / CAPTCHA pages', () {
+      expect(
+          LyricsApi.extractGoogleLyrics(
+              '<html>unusual traffic from your computer network</html>'),
+          isNull);
+      expect(
+          LyricsApi.extractGoogleLyrics(
+              '<div class="hwc">x</div>please enable javascript'),
+          isNull);
+    });
+
+    test('decodes HTML entities', () {
+      const html = '<div class="hwc"><span>It&apos;s &quot;quoted&quot; &amp; '
+          'done<br>second line</span></div>'
+          '<div class="BNeawe tAd8D AP7Wnd">x</div>';
+      final text = LyricsApi.extractGoogleLyrics(html)!;
+      expect(text, contains('It\'s "quoted" & done'));
+    });
+  });
+
+  group('LyricsResult.source', () {
+    test('defaults to lrclib and notFound carries no source claim', () {
+      expect(const LyricsResult(found: true).source, 'lrclib');
+      expect(LyricsResult.notFound.found, isFalse);
+    });
+  });
+
+  group('Track.audioFormat', () {
+    Track t(String? localPath, String? streamUrl) => Track(
+          id: 'x',
+          title: 't',
+          artist: 'a',
+          license: 'Drive',
+          licenseUrl: '',
+          artworkUrl: '',
+          source: 'local',
+          localPath: localPath,
+          streamUrl: streamUrl,
+        );
+
+    test('detects FLAC and OPUS from local path', () {
+      expect(t('/music/song.flac', null).audioFormat, 'FLAC');
+      expect(t('/music/song.opus', null).audioFormat, 'OPUS');
+      expect(t('/music/song.FLAC', null).audioFormat, 'FLAC');
+    });
+
+    test('falls back to stream URL', () {
+      expect(t(null, 'https://x/y.ogg?dl=1').audioFormat, 'OGG');
+    });
+
+    test('beta flag only for FLAC/OPUS', () {
+      expect(t('/m/a.flac', null).isBetaFormat, isTrue);
+      expect(t('/m/a.opus', null).isBetaFormat, isTrue);
+      expect(t('/m/a.mp3', null).isBetaFormat, isFalse);
+      expect(t(null, null).isBetaFormat, isFalse);
+    });
+
+    test('unknown extension yields null', () {
+      expect(t('/m/a.xyz', null).audioFormat, isNull);
+    });
+  });
 }

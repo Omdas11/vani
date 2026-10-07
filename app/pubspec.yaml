@@ -1,7 +1,7 @@
 name: opentune
 description: OpenTune — a Spotify-style music player for open-licensed music.
 publish_to: 'none'
-version: 1.4.0+6
+version: 1.5.0+7
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

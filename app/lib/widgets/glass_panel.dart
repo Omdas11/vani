@@ -5,13 +5,18 @@ import 'package:flutter/material.dart';
 /// mini-player card and the bottom dock.
 ///
 /// Why it reads as "glass" on-device (v1.4.0 fixes for the flat look):
-/// - a stronger blur (sigma 22) over a *tinted* base, so the panel is
-///   legible even where there is little behind it to blur;
+/// - a blur over a *tinted* base, so the panel is legible even where
+///   there is little behind it to blur;
 /// - a bright top-edge highlight plus a full 1px border, which is what
 ///   sells the glass edge to the eye;
 /// - a soft drop shadow for separation from the background.
 /// The base tint doubles as a graceful fallback on GPUs where the blur
 /// is weak: the panel never becomes unreadable.
+///
+/// v1.5.0 perf: blur sigma 22 -> 14 (the animated gradient behind these
+/// panels repaints every frame, and each BackdropFilter re-samples its
+/// backdrop — sigma 22 was the single biggest GPU cost in the app), plus
+/// a RepaintBoundary so panel content repaints don't retrigger the blur.
 class GlassPanel extends StatelessWidget {
   final Widget child;
   final double radius;
@@ -28,10 +33,11 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: Container(
           padding: padding,
           foregroundDecoration: BoxDecoration(
@@ -65,6 +71,7 @@ class GlassPanel extends StatelessWidget {
           ),
           child: child,
         ),
+      ),
       ),
     );
   }

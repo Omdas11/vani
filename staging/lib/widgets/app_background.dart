@@ -8,6 +8,12 @@ import 'package:flutter/material.dart';
 /// per-frame blur, no shader. When the user turns "Animated background"
 /// off in Settings (battery saver), this renders a plain static dark
 /// container instead.
+///
+/// v1.5.0 perf: the whole background sits in a RepaintBoundary so its
+/// per-frame gradient ticks never force the UI above to repaint (this
+/// was the main "choppy" driver together with the glass blur). The
+/// watermark no longer drifts per-frame — it was imperceptible and
+/// forced the image to repaint.
 class AppBackground extends StatefulWidget {
   final bool animated;
   const AppBackground({super.key, this.animated = true});
@@ -61,44 +67,44 @@ class _AppBackgroundState extends State<AppBackground>
     if (!widget.animated) {
       return Container(color: const Color(0xFF121212));
     }
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, __) {
-        final t = _ctrl.value * (_stages.length - 1);
-        final i = t.floor().clamp(0, _stages.length - 2);
-        final f = t - i;
-        final top = Color.lerp(_stages[i][0], _stages[i + 1][0], f)!;
-        final bottom = Color.lerp(_stages[i][1], _stages[i + 1][1], f)!;
-        // Gentle watermark drift synced to the same controller.
-        final dx = (_ctrl.value - 0.5) * 24;
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [top, bottom],
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          final t = _ctrl.value * (_stages.length - 1);
+          final i = t.floor().clamp(0, _stages.length - 2);
+          final f = t - i;
+          final top = Color.lerp(_stages[i][0], _stages[i + 1][0], f)!;
+          final bottom = Color.lerp(_stages[i][1], _stages[i + 1][1], f)!;
+          return Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [top, bottom],
+              ),
             ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -90 + dx,
-                top: 120,
-                child: Opacity(
-                  opacity: 0.055,
-                  child: Image.asset(
-                    'assets/veena_watermark.webp',
-                    width: 340,
-                    height: 340,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            child: Stack(
+              children: [
+                Positioned(
+                  right: -90,
+                  top: 120,
+                  child: Opacity(
+                    opacity: 0.055,
+                    child: Image.asset(
+                      'assets/veena_watermark.webp',
+                      width: 340,
+                      height: 340,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

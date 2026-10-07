@@ -23,11 +23,16 @@ class LyricsResult {
   /// Plain unsynced lyrics text, may be empty.
   final String plain;
 
+  /// Where the lyrics came from: 'lrclib', 'kugou', or 'web'
+  /// (Google knowledge-panel fallback, plain text only).
+  final String source;
+
   const LyricsResult({
     required this.found,
     this.instrumental = false,
     this.synced = const [],
     this.plain = '',
+    this.source = 'lrclib',
   });
 
   static const notFound = LyricsResult(found: false);
@@ -136,18 +141,25 @@ class LyricsApi {
     );
   }
 
-  /// One explicit lookup: lrclib first, KuGou fallback.
-  /// Returns [LyricsResult.notFound] on any failure.
+  /// One explicit lookup: lrclib exact, then lrclib free-text search,
+  /// then KuGou, then the Google knowledge-panel fallback (plain text
+  /// only, clearly labeled). Returns [LyricsResult.notFound] on any
+  /// failure.
   Future<LyricsResult> fetch({
     String? artist,
     String? title,
     int? durationSeconds,
   }) async {
-    final r = await _fetchLrclib(
+    final r1 = await _fetchLrclib(
         artist: artist, title: title, durationSeconds: durationSeconds);
-    if (r.found) return r;
-    return _fetchKugou(
+    if (r1.found) return r1;
+    final r2 = await _fetchLrclibSearch(
         artist: artist, title: title, durationSeconds: durationSeconds);
+    if (r2.found) return r2;
+    final r3 = await _fetchKugou(
+        artist: artist, title: title, durationSeconds: durationSeconds);
+    if (r3.found) return r3;
+    return _fetchGoogle(artist: artist, title: title);
   }
 
   Future<LyricsResult> _fetchLrclib({
@@ -341,10 +353,185 @@ class LyricsApi {
         found: true,
         synced: synced,
         plain: synced.map((l) => l.text).join('\n'),
+        source: 'kugou',
       );
     } catch (_) {
       return LyricsResult.notFound;
     }
+  }
+
+  // ---------- lrclib free-text search ----------
+  // The /api/get endpoint needs an exact match; /api/search?q= does
+  // server-side fuzzy matching and catches songs the exact lookup
+  // misses (common for Bengali tracks with variant spellings).
+
+  /// Public for testing: builds the lrclib search URL.
+  static String lrclibSearchUrl({String? artist, String? title}) {
+    final a = (artist ?? '').trim();
+    final t = (title ?? '').trim();
+    final q = a.isNotEmpty && a != 'Unknown artist' ? '$t $a' : t;
+    if (q.isEmpty || q == 'Unknown title') return '';
+    return 'https://lrclib.net/api/search?q=${Uri.encodeComponent(q)}';
+  }
+
+  Future<LyricsResult> _fetchLrclibSearch({
+    String? artist,
+    String? title,
+    int? durationSeconds,
+  }) async {
+    final url = lrclibSearchUrl(artist: artist, title: title);
+    if (url.isEmpty) return LyricsResult.notFound;
+    try {
+      final res = await http
+          .get(Uri.parse(url), headers: {'User-Agent': 'Vani/1.5'})
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return LyricsResult.notFound;
+      final decoded = jsonDecode(res.body);
+      if (decoded is! List || decoded.isEmpty) {
+        return LyricsResult.notFound;
+      }
+      // Pick the best candidate: prefer title overlap, then duration.
+      Map<String, dynamic>? best;
+      var bestScore = 0.0;
+      for (final e in decoded.whereType<Map<String, dynamic>>().take(8)) {
+        final candTitle = '${e['trackName'] ?? ''}';
+        final candArtist = '${e['artistName'] ?? ''}';
+        final score = scoreKugouCandidate(
+          candTitle: candTitle,
+          candArtist: candArtist,
+          candDurationMs:
+              (((e['duration'] as num?)?.toDouble() ?? 0) * 1000).toInt(),
+          wantTitle: (title ?? '').trim(),
+          wantArtist: (artist ?? '').trim(),
+          wantDurationSeconds: durationSeconds,
+        );
+        if (score > bestScore) {
+          bestScore = score;
+          best = e;
+        }
+      }
+      if (best == null || bestScore < 0.5) return LyricsResult.notFound;
+      final syncedRaw = (best['syncedLyrics'] as String?) ?? '';
+      final plain = (best['plainLyrics'] as String?) ?? '';
+      final synced = parseLrc(syncedRaw);
+      if (synced.isEmpty && plain.trim().isEmpty) {
+        return LyricsResult.notFound;
+      }
+      return LyricsResult(
+        found: true,
+        instrumental: best['instrumental'] == true,
+        synced: synced,
+        plain: plain.trim(),
+        source: 'lrclib',
+      );
+    } catch (_) {
+      return LyricsResult.notFound;
+    }
+  }
+
+  // ---------- Google knowledge-panel fallback (Namida's approach) ----------
+  // Last resort, plain text only, clearly labeled as 'web' in the UI.
+  // No key needed, but fragile by nature: Google changes its markup,
+  // and heavy use risks CAPTCHAs. Hard 10s timeout per query variant,
+  // block detection, zero hard dependency — a miss just returns
+  // notFound like any other source.
+
+  /// Public for testing: the query variants tried in order, mirroring
+  /// Namida (which inherited them from netlob/dart-lyrics).
+  static List<String> googleQueryVariants({
+    String? artist,
+    String? title,
+  }) {
+    final a = (artist ?? '').trim();
+    final t = (title ?? '').trim();
+    if (t.isEmpty || t == 'Unknown title') return const [];
+    final shortTitle = t.split('-').first.trim();
+    final artistPart =
+        (a.isNotEmpty && a != 'Unknown artist') ? ' by $a' : '';
+    final queries = <String>['"$t$artistPart lyrics"'];
+    if (shortTitle.isNotEmpty && shortTitle != t) {
+      queries.add('"$shortTitle$artistPart lyrics"');
+    }
+    queries.add('"$t$artistPart song lyrics"');
+    return queries;
+  }
+
+  /// Public for testing: builds the Google search URL for a query.
+  static String googleSearchUrl(String query) =>
+      'https://www.google.com/search?client=safari&rls=en&ie=UTF-8&oe=UTF-8'
+      '&q=${Uri.encodeComponent(query)}';
+
+  /// Public for testing: extracts lyrics text from a Google results page.
+  /// Namida reads the knowledge-panel block delimited by the `hwc` and
+  /// `BNeawe tAd8D AP7Wnd` CSS classes, then strips tags. Returns null
+  /// when the block is absent or the page signals a block/CAPTCHA.
+  static String? extractGoogleLyrics(String html) {
+    final lower = html.toLowerCase();
+    if (lower.contains('unusual traffic from your computer network') ||
+        lower.contains('please enable javascript') ||
+        lower.contains('error 500')) {
+      return null; // blocked / CAPTCHA / error page
+    }
+    final startMark = html.indexOf('hwc');
+    if (startMark < 0) return null;
+    var endMark = html.indexOf('BNeawe tAd8D AP7Wnd', startMark);
+    endMark = endMark < 0 ? html.indexOf('BNeawe', startMark) : endMark;
+    if (endMark < 0 || endMark <= startMark) return null;
+    var chunk = html.substring(startMark, endMark);
+    // Turn <br> and block ends into newlines before stripping tags.
+    chunk = chunk.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+    chunk = chunk.replaceAll(
+        RegExp(r'</(div|p|span)>', caseSensitive: false), '\n');
+    chunk = chunk.replaceAll(RegExp(r'<[^>]*>'), '');
+    chunk = _decodeHtmlEntities(chunk);
+    final lines = chunk
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    if (lines.length < 2) return null;
+    return lines.join('\n');
+  }
+
+  /// Public for testing: decodes the common HTML entities in lyrics text.
+  static String _decodeHtmlEntities(String s) => s
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&apos;', "'")
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&nbsp;', ' ');
+
+  Future<LyricsResult> _fetchGoogle({String? artist, String? title}) async {
+    final queries = googleQueryVariants(artist: artist, title: title);
+    for (final q in queries) {
+      try {
+        final res = await http
+            .get(
+              Uri.parse(googleSearchUrl(q)),
+              headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
+            )
+            .timeout(const Duration(seconds: 10));
+        if (res.statusCode != 200) continue;
+        final text = extractGoogleLyrics(res.body);
+        if (text != null && text.trim().length > 40) {
+          return LyricsResult(
+            found: true,
+            plain: text.trim(),
+            source: 'web',
+          );
+        }
+      } catch (_) {
+        continue; // next variant; a miss is just a miss
+      }
+    }
+    return LyricsResult.notFound;
   }
 }
 

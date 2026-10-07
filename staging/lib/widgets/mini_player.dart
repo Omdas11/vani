@@ -70,9 +70,10 @@ class MiniPlayer extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.skip_previous, size: 28),
+                        icon: const Icon(Icons.skip_previous, size: 26),
                         color: Colors.white70,
                         onPressed: pc.previous,
+                        tooltip: 'Previous',
                       ),
                       // Spinner only while genuinely loading (never while
                       // audio is playing — see the controller invariant).
@@ -92,11 +93,19 @@ class MiniPlayer extends StatelessWidget {
                             pc.isPlaying
                                 ? Icons.pause_circle_filled
                                 : Icons.play_circle_filled,
-                            size: 40,
+                            size: 38,
                             color: Colors.white,
                           ),
                           onPressed: pc.togglePlayPause,
+                          tooltip:
+                              pc.isPlaying ? 'Pause' : 'Play',
                         ),
+                      IconButton(
+                        icon: const Icon(Icons.skip_next, size: 26),
+                        color: Colors.white70,
+                        onPressed: pc.next,
+                        tooltip: 'Next',
+                      ),
                       const SizedBox(width: 4),
                     ],
                   ),

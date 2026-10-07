@@ -348,29 +348,32 @@ class _PlayerScreenState extends State<PlayerScreen>
                                           Alignment.center,
                                       children: [
                                         // Holographic ring rotating behind the play button.
-                                        AnimatedBuilder(
-                                          animation: _shimmer,
-                                          builder: (_, __) =>
-                                              Container(
-                                            width: 78,
-                                            height: 78,
-                                            decoration:
-                                                BoxDecoration(
-                                              shape:
-                                                  BoxShape.circle,
-                                              gradient:
-                                                  SweepGradient(
-                                                transform:
-                                                    GradientRotation(
-                                                        _shimmer.value *
-                                                            6.28318),
-                                                colors: const [
-                                                  Color(0x001DB954),
-                                                  Color(0x551DB954),
-                                                  Color(0x55A47FE8),
-                                                  Color(0x555EC8E8),
-                                                  Color(0x001DB954),
-                                                ],
+                                        // v1.5.0 perf: repaint-isolated.
+                                        RepaintBoundary(
+                                          child: AnimatedBuilder(
+                                            animation: _shimmer,
+                                            builder: (_, __) =>
+                                                Container(
+                                              width: 78,
+                                              height: 78,
+                                              decoration:
+                                                  BoxDecoration(
+                                                shape:
+                                                    BoxShape.circle,
+                                                gradient:
+                                                    SweepGradient(
+                                                  transform:
+                                                      GradientRotation(
+                                                          _shimmer.value *
+                                                              6.28318),
+                                                  colors: const [
+                                                    Color(0x001DB954),
+                                                    Color(0x551DB954),
+                                                    Color(0x55A47FE8),
+                                                    Color(0x555EC8E8),
+                                                    Color(0x001DB954),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           ),

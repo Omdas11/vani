@@ -22,6 +22,20 @@ class _LyricsSheetState extends State<LyricsSheet> {
   bool _loading = true;
   String? _error;
 
+  /// Human label for where the current lyrics came from.
+  String _sourceLabel(LyricsResult? r) {
+    final artistBit =
+        _track != null ? '${_track!.artist} · ' : '';
+    switch (r?.source) {
+      case 'kugou':
+        return '${artistBit}via KuGou';
+      case 'web':
+        return '${artistBit}via web search (fallback)';
+      default:
+        return '${artistBit}via lrclib.net';
+    }
+  }
+
   // Manual search override (for bad metadata).
   bool _editing = false;
   late TextEditingController _artistCtrl;
@@ -189,9 +203,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
                                 fontSize: 15),
                           ),
                           Text(
-                            t != null
-                                ? '${t.artist} · via lrclib.net'
-                                : 'via lrclib.net',
+                            _sourceLabel(_result),
                             style: TextStyle(
                                 color: Colors.grey[500],
                                 fontSize: 11),
@@ -244,7 +256,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
     final r = _result;
     if (r == null || !r.found) {
       return _empty(Icons.lyrics_outlined,
-          'No lyrics found for this track.\nLyrics come from the free lrclib.net database — not every song is listed.');
+          'No lyrics found for this track.\nSearched lrclib, KuGou and the web — not every song is listed anywhere.');
     }
     if (r.instrumental && r.synced.isEmpty && r.plain.isEmpty) {
       return _empty(Icons.music_note, 'This track is instrumental.');

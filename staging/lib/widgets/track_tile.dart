@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
 
 /// Shared artwork image with a music-note fallback.
+/// Supports remote URLs (Image.network) and on-device file paths
+/// (Image.file, e.g. cover art downloaded by AI Fixer).
 class TrackArt extends StatelessWidget {
   final Track track;
   final double size;
@@ -13,16 +17,24 @@ class TrackArt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (track.artworkUrl.isEmpty) return _fallback();
+    final url = track.artworkUrl;
+    final Widget image = url.startsWith('/')
+        ? Image.file(
+            File(url),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _fallback(),
+          )
+        : Image.network(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _fallback(),
+          );
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
         width: size,
         height: size,
-        child: Image.network(
-          track.artworkUrl,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _fallback(),
-        ),
+        child: image,
       ),
     );
   }
@@ -115,6 +127,33 @@ class TrackTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (track.isBetaFormat)
+            Tooltip(
+              message:
+                  '${track.audioFormat} playback is in early testing — '
+                  'tell us if seeking or playback misbehaves.',
+              child: Container(
+                margin: const EdgeInsets.only(right: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1DB954).withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color:
+                        const Color(0xFF1DB954).withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Text(
+                  '${track.audioFormat} β',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1DB954),
+                  ),
+                ),
+              ),
+            ),
           if (showOfflineBadge && track.isDownloaded)
             const Padding(
               padding: EdgeInsets.only(right: 4),

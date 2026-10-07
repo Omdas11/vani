@@ -32,26 +32,30 @@ class VinylRecord extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           // Ambient holographic glow behind the disc.
-          AnimatedBuilder(
-            animation: shimmer,
-            builder: (_, __) {
-              final t = shimmer.value;
-              return Container(
-                width: size * 1.12,
-                height: size * 1.12,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      _holoColor(t, 0.22),
-                      _holoColor(t + 0.33, 0.10),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.55, 0.8, 1.0],
+          // v1.5.0 perf: isolated in a RepaintBoundary so the per-frame
+          // gradient ticks don't repaint the disc or its parent.
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: shimmer,
+              builder: (_, __) {
+                final t = shimmer.value;
+                return Container(
+                  width: size * 1.12,
+                  height: size * 1.12,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        _holoColor(t, 0.22),
+                        _holoColor(t + 0.33, 0.10),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.55, 0.8, 1.0],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
           // The spinning disc.
           RotationTransition(
