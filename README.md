@@ -37,11 +37,20 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
   (title/creator match); tap a result to play.
 - **Library** — Liked Songs, Playlists (create / rename / delete, add &
   remove tracks), Downloads (offline tracks with offline badge),
-  Recently Played (last 50).
+  Recently Played (last 50), **My Drive** (your own songs from
+  Google Drive — see below).
 - **Now Playing** — full-screen sheet: artwork, title/artist, like button,
   play/pause, draggable seek bar, next/previous, shuffle, repeat
   (off → all → one), up-next queue (tap to jump), download-for-offline
-  button with progress, license/attribution line.
+  button with progress, license/attribution line, **lyrics button**.
+- **Lyrics** — tap the lyrics icon on Now Playing to look up the song on
+  the free lrclib.net database. Synced (karaoke-style) lyrics
+  auto-scroll and highlight the current line as the song plays; plain
+  unsynced lyrics are shown when no timing data exists. Lookups happen
+  only when you tap (never automatically) and results are cached on
+  your device, so repeat views don't hit the network. Works for both
+  Archive tracks and your Drive songs (it matches on artist/title).
+  "No lyrics found" simply means lrclib doesn't list that song.
 - **Mini player** pinned above the bottom nav while something plays.
 - **Background playback** — `just_audio` + `audio_service` (via
   `just_audio_background`): notification/lock-screen controls, headset
@@ -49,8 +58,49 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
 - **Offline** — downloads stream to the app documents dir (`path_provider`);
   the registry persists in `shared_preferences`; downloaded tracks play
   from the local file.
-- **Persistence** — likes, playlists, downloads, and recently-played all
-  survive restarts via `shared_preferences` (JSON).
+- **Persistence** — likes, playlists, downloads, Drive tracks, and
+  recently-played all survive restarts via `shared_preferences` (JSON).
+
+## My Drive — your own music from Google Drive
+
+OpenTune has no server of its own. To play your personal collection,
+host the MP3s on **Google Drive** and add them in
+Library → **My Drive**:
+
+1. In the Google Drive app/site, upload your MP3s.
+2. Share each file (or the whole folder) as **"Anyone with the link"**
+   → **Viewer**. Without this the app can't stream them.
+3. In OpenTune: Library → My Drive → **"Add song from link"** → paste
+   the share link (title/artist optional — you can edit them later).
+4. Your songs now play like any other track: queue, shuffle, repeat,
+   like, add to playlists, and download for offline.
+
+**Bulk import with index.json** — instead of pasting links one by one,
+host a JSON file listing your songs (a Drive file shared as "Anyone
+with the link" works), then My Drive → **"Import index.json"** and
+paste the file's link. Schema:
+
+```json
+[
+  {"title": "Eto J Nithur Bondhu", "artist": "Aditi Chakraborty",
+   "url": "https://drive.google.com/file/d/1AbC.../view?usp=sharing"},
+  {"title": "Amar Shonar Bangla", "artist": "Various Artists",
+   "url": "https://example.com/songs/amar-shonar-bangla.mp3"}
+]
+```
+
+- Also accepted: `{"tracks": [...]}` or `{"songs": [...]}` wrappers.
+- `"url"` is required — a Drive share link (converted automatically)
+  or any direct audio URL. `"title"` falls back to the filename;
+  `"artist"` falls back to "Unknown artist".
+- Example file: [`docs/index-example.json`](docs/index-example.json).
+
+**Honest limits:** Drive's free 15 GB is shared with Gmail/Photos;
+Google may throttle heavy streaming (you'll see a "quota exceeded"
+error — waiting a while fixes it); shared links must stay
+"Anyone with the link". For a large library, a dedicated music
+server (e.g. Navidrome/Subsonic) beats Drive — the app is ready for
+that whenever you are.
 
 ## Rebuild
 
@@ -98,6 +148,9 @@ Notes:
   assumptions may show on small screens.
 - Genre shelves depend on Archive `subject` tagging quality (Jazz in
   particular is loosely tagged — ~40k loose results upstream).
+- New in v1.1.0 and likewise phone-untested: Google Drive streaming
+  (share-link parsing, index.json import, Drive downloads), the lyrics
+  sheet (synced auto-scroll, caching), and the Now Playing live-rebuild.
 - Some IA items expose no playable audio file; the app shows an error
   toast/line and stays on the current track in that case.
 - Release APK is signed with the debug key (`signingConfigs.debug`) —

@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track.dart';
 import 'archive_api.dart';
+import 'drive_source.dart';
+import 'lyrics_api.dart';
 
 /// Loop modes: 0 = off, 1 = repeat all, 2 = repeat one.
 class PlayerController extends ChangeNotifier {
@@ -27,6 +29,12 @@ class PlayerController extends ChangeNotifier {
   final Map<String, List<Track>> playlists = {};
   final List<Track> downloads = [];
   final List<Track> recent = [];
+
+  /// Tracks the user added from Google Drive ("My Drive").
+  final List<Track> driveTracks = [];
+
+  final LyricsApi lyricsApi = LyricsApi();
+  final LyricsCache lyricsCache = LyricsCache();
 
   bool shuffle = false;
   int loopMode = 0; // 0 off, 1 all, 2 one
@@ -118,10 +126,12 @@ class PlayerController extends ChangeNotifier {
       uri,
       tag: MediaItem(
         id: '${track.id}::${track.title}',
-        album: 'OpenTune · Internet Archive',
+        album: track.isDriveTrack ? 'OpenTune · My Drive' : 'OpenTune · Internet Archive',
         title: track.title,
         artist: track.artist,
-        artUri: Uri.parse(track.artworkUrl),
+        artUri: track.artworkUrl.isEmpty
+            ? null
+            : Uri.parse(track.artworkUrl),
       ),
     );
   }
@@ -345,7 +355,8 @@ class PlayerController extends ChangeNotifier {
       final total = streamed.contentLength ?? 0;
       final dir = await _dlDir();
       final safe = t.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final file = File('${dir.path}/${t.id}_$safe.mp3');
+      final safeId = t.id.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final file = File('${dir.path}/${safeId}_$safe.mp3');
       final sink = file.openWrite();
       var received = 0;
       await for (final chunk in streamed.stream) {
@@ -382,6 +393,130 @@ class PlayerController extends ChangeNotifier {
     await _persist();
   }
 
+  // ---------- google drive ("my drive") ----------
+
+  /// Builds a Drive [Track] from a user-supplied share link (or a bare
+  /// file ID). Returns null when no Drive file ID can be parsed.
+  Track? driveTrackFromLink(String link,
+      {String? title, String? artist}) {
+    final id = DriveSource.parseDriveFileId(link);
+    if (id == null) return null;
+    final t = (title == null || title.trim().isEmpty)
+        ? DriveSource.deriveTitle(link)
+        : title.trim();
+    final a = (artist == null || artist.trim().isEmpty)
+        ? 'Unknown artist'
+        : artist.trim();
+    return Track(
+      id: 'drive:$id',
+      title: t,
+      artist: a,
+      license: 'Drive',
+      licenseUrl: '',
+      artworkUrl: '',
+      source: 'drive',
+      streamUrl: DriveSource.driveStreamUrl(id),
+    );
+  }
+
+  /// Adds a Drive track if an identical one isn't already saved.
+  Future<bool> addDriveTrack(Track t) async {
+    if (driveTracks.any((e) => e.id == t.id)) return false;
+    driveTracks.add(t);
+    notifyListeners();
+    await _persist();
+    return true;
+  }
+
+  Future<void> removeDriveTrack(Track t) async {
+    driveTracks.removeWhere((e) => e.id == t.id);
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Replaces a Drive track's title/artist (Track is immutable).
+  Future<void> updateDriveTrack(Track old, String title, String artist) async {
+    final i = driveTracks.indexWhere((e) => e.id == old.id);
+    if (i < 0) return;
+    final t = (title.trim().isEmpty ? old.title : title.trim());
+    final a = (artist.trim().isEmpty ? old.artist : artist.trim());
+    driveTracks[i] = old.copyWith(title: t, artist: a);
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Fetches an index JSON file from [indexUrl] and imports every entry
+  /// as a Drive track. Entry URLs may be Drive share links (converted)
+  /// or direct audio URLs. Returns the number of tracks added.
+  Future<int> importDriveIndex(String indexUrl) async {
+    final url = indexUrl.trim();
+    if (url.isEmpty) return 0;
+    final res = await http
+        .get(Uri.parse(url))
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode != 200) {
+      error = 'Could not fetch index (${res.statusCode})';
+      notifyListeners();
+      return 0;
+    }
+    final entries = DriveIndex.parse(res.body);
+    var added = 0;
+    for (final e in entries) {
+      final fileId = DriveSource.parseDriveFileId(e.url);
+      final Track t;
+      if (fileId != null && DriveSource.isDriveUrl(e.url)) {
+        t = Track(
+          id: 'drive:$fileId',
+          title: e.title,
+          artist: e.artist,
+          license: 'Drive',
+          licenseUrl: '',
+          artworkUrl: '',
+          source: 'drive',
+          streamUrl: DriveSource.driveStreamUrl(fileId),
+        );
+      } else {
+        t = Track(
+          id: 'driveurl:${DriveSource.stableUrlId(e.url)}',
+          title: e.title,
+          artist: e.artist,
+          license: 'Drive',
+          licenseUrl: '',
+          artworkUrl: '',
+          source: 'drive',
+          streamUrl: e.url,
+        );
+      }
+      if (await addDriveTrack(t)) added++;
+    }
+    if (added == 0 && entries.isEmpty) {
+      error = 'No tracks found in that index file';
+      notifyListeners();
+    }
+    return added;
+  }
+
+  // ---------- lyrics ----------
+
+  /// Identity string used to key the lyrics cache for [t].
+  String lyricsIdentity(Track t) =>
+      '${t.source}::${t.id}::${t.title}::${t.artist}';
+
+  /// Explicit lyrics lookup: cache first, then one lrclib.net request.
+  /// Call only from a user tap — never in a loop.
+  Future<LyricsResult> fetchLyrics(Track t) async {
+    final key = lyricsIdentity(t);
+    final cached = await lyricsCache.get(key);
+    if (cached != null) return cached;
+    final result = await lyricsApi.fetch(
+      artist: t.artist,
+      title: t.title,
+      durationSeconds: duration?.inSeconds,
+    );
+    await lyricsCache.put(key, result);
+    return result;
+  }
+
   // ---------- persistence ----------
 
   Future<void> _persist() async {
@@ -396,6 +531,8 @@ class PlayerController extends ChangeNotifier {
             (k, v) => MapEntry(k, v.map((t) => t.toJson()).toList()))));
     await prefs.setString(
         'downloads', jsonEncode(downloads.map((t) => t.toJson()).toList()));
+    await prefs.setString(
+        'drive', jsonEncode(driveTracks.map((t) => t.toJson()).toList()));
     await prefs.setString(
         'recent', jsonEncode(recent.map((t) => t.toJson()).toList()));
   }
@@ -424,6 +561,10 @@ class PlayerController extends ChangeNotifier {
         if (t.localPath != null && await File(t.localPath!).exists()) {
           downloads.add(t);
         }
+      }
+      final dr = jsonDecode(prefs.getString('drive') ?? '[]') as List;
+      for (final j in dr.whereType<Map<String, dynamic>>()) {
+        driveTracks.add(Track.fromJson(j));
       }
       final rec = jsonDecode(prefs.getString('recent') ?? '[]') as List;
       for (final j in rec.whereType<Map<String, dynamic>>()) {

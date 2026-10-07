@@ -12,6 +12,7 @@ class TrackArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (track.artworkUrl.isEmpty) return _fallback();
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
@@ -20,12 +21,21 @@ class TrackArt extends StatelessWidget {
         child: Image.network(
           track.artworkUrl,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
-            color: Colors.grey[850],
-            child: const Icon(Icons.music_note, color: Colors.white54),
-          ),
+          errorBuilder: (_, __, ___) => _fallback(),
         ),
       ),
+    );
+  }
+
+  Widget _fallback() {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.grey[850],
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: const Icon(Icons.music_note, color: Colors.white54),
     );
   }
 }
@@ -37,12 +47,18 @@ class LicenseBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Color bg;
+    if (track.license == 'CC0') {
+      bg = Colors.green[900]!;
+    } else if (track.isDriveTrack) {
+      bg = Colors.blue[900]!;
+    } else {
+      bg = Colors.amber[900]!;
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: track.license == 'CC0'
-            ? Colors.green[900]
-            : Colors.amber[900],
+        color: bg,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
@@ -62,6 +78,10 @@ class TrackTile extends StatelessWidget {
   final VoidCallback? onTapOverride;
   final bool showOfflineBadge;
 
+  /// When non-null, shows an edit (pencil) button in the trailing row —
+  /// used by the My Drive screen to rename user-added tracks.
+  final void Function(Track track)? onEdit;
+
   const TrackTile({
     super.key,
     required this.track,
@@ -70,6 +90,7 @@ class TrackTile extends StatelessWidget {
     required this.pc,
     this.onTapOverride,
     this.showOfflineBadge = false,
+    this.onEdit,
   });
 
   @override
@@ -99,6 +120,11 @@ class TrackTile extends StatelessWidget {
               padding: EdgeInsets.only(right: 4),
               child: Icon(Icons.download_done,
                   size: 18, color: Colors.white54),
+            ),
+          if (onEdit != null)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              onPressed: () => onEdit!(track),
             ),
           _menu(context),
         ],

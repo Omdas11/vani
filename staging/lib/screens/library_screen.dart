@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
 import '../widgets/track_tile.dart';
+import 'drive_screen.dart';
 
 /// Library: recently played, liked songs, playlists, offline downloads.
 class LibraryScreen extends StatelessWidget {
@@ -98,6 +99,18 @@ class LibraryScreen extends StatelessWidget {
                     allowRemove: (t) => pc.deleteDownload(t),
                     removeLabel: 'Remove download',
                     showOfflineBadge: true),
+          ),
+          _headerTile(
+            context,
+            icon: Icons.cloud_outlined,
+            color: const Color(0xFF0F9D58),
+            title: 'My Drive',
+            subtitle: pc.driveTracks.isEmpty
+                ? 'Your songs from Google Drive'
+                : '${pc.driveTracks.length} tracks · Google Drive',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => DriveScreen(pc: pc),
+            )),
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
