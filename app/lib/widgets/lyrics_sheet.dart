@@ -22,6 +22,11 @@ class _LyricsSheetState extends State<LyricsSheet> {
   bool _loading = true;
   String? _error;
 
+  // Manual search override (for bad metadata).
+  bool _editing = false;
+  late TextEditingController _artistCtrl;
+  late TextEditingController _titleCtrl;
+
   final ScrollController _scroll = ScrollController();
   final ValueNotifier<int> _activeIndex = ValueNotifier(-1);
   double _viewportH = 400;
@@ -33,6 +38,8 @@ class _LyricsSheetState extends State<LyricsSheet> {
   void initState() {
     super.initState();
     _track = pc.currentTrack;
+    _artistCtrl = TextEditingController(text: _track?.artist ?? '');
+    _titleCtrl = TextEditingController(text: _track?.title ?? '');
     pc.addListener(_onPcTick);
     _load();
   }
@@ -42,6 +49,8 @@ class _LyricsSheetState extends State<LyricsSheet> {
     pc.removeListener(_onPcTick);
     _scroll.dispose();
     _activeIndex.dispose();
+    _artistCtrl.dispose();
+    _titleCtrl.dispose();
     super.dispose();
   }
 
@@ -51,6 +60,9 @@ class _LyricsSheetState extends State<LyricsSheet> {
     if (cur != _track) {
       _track = cur;
       _activeIndex.value = -1;
+      _editing = false;
+      _artistCtrl.text = cur?.artist ?? '';
+      _titleCtrl.text = cur?.title ?? '';
       _load();
       return;
     }
@@ -112,6 +124,37 @@ class _LyricsSheetState extends State<LyricsSheet> {
     }
   }
 
+  /// Manual override: search again with user-corrected artist/title.
+  Future<void> _searchOverride() async {
+    final t = _track;
+    if (t == null) return;
+    final artist = _artistCtrl.text.trim();
+    final title = _titleCtrl.text.trim();
+    if (artist.isEmpty || title.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _error = null;
+      _result = null;
+      _editing = false;
+    });
+    try {
+      final r = await pc.fetchLyricsOverride(t, artist, title);
+      if (!mounted) return;
+      setState(() {
+        _result = r;
+        _loading = false;
+      });
+      _onPcTick();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Lyrics lookup failed';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = _track;
@@ -157,6 +200,22 @@ class _LyricsSheetState extends State<LyricsSheet> {
                       ),
                     ),
                     IconButton(
+                      icon: Icon(
+                        _editing ? Icons.check : Icons.edit_outlined,
+                        size: 20,
+                      ),
+                      tooltip: _editing
+                          ? 'Search with these details'
+                          : 'Fix artist/title and search again',
+                      onPressed: () {
+                        if (_editing) {
+                          _searchOverride();
+                        } else {
+                          setState(() => _editing = true);
+                        }
+                      },
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.close),
                       onPressed: () => Navigator.pop(context),
                     ),
@@ -164,6 +223,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
                 ),
               ),
               const Divider(height: 1),
+              if (_editing) _overrideEditor(),
               Expanded(child: _body()),
             ],
           ),
@@ -191,6 +251,57 @@ class _LyricsSheetState extends State<LyricsSheet> {
     }
     if (r.synced.isNotEmpty) return _syncedView(r);
     return _plainView(r.plain);
+  }
+
+  Widget _overrideEditor() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Wrong song details? Fix them and search again.',
+              style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _artistCtrl,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Artist',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _titleCtrl,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _searchOverride(),
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _searchOverride,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF1DB954),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Go'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _empty(IconData icon, String text) {

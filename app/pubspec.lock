@@ -80,6 +80,13 @@ packages:
       relative: false
     source: path
     version: "1.19.1"
+  cross_file:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/cross_file-0.3.5+5"
+      relative: false
+    source: path
+    version: "0.3.5+5"
   crypto:
     dependency: "direct overridden"
     description:
@@ -109,6 +116,13 @@ packages:
       relative: false
     source: path
     version: "7.0.1"
+  file_picker:
+    dependency: "direct main"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/file_picker-8.3.7"
+      relative: false
+    source: path
+    version: "8.3.7"
   fixnum:
     dependency: "direct overridden"
     description:
@@ -135,6 +149,13 @@ packages:
       relative: false
     source: path
     version: "4.0.0"
+  flutter_plugin_android_lifecycle:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_plugin_android_lifecycle-2.0.35"
+      relative: false
+    source: path
+    version: "2.0.35"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -204,10 +225,10 @@ packages:
   just_audio_background:
     dependency: "direct main"
     description:
-      path: "/home/hatch/workspace/opentune/.pub_pkgs/just_audio_background-0.0.1-beta.17"
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/just_audio_background-0.0.1-beta.9"
       relative: false
     source: path
-    version: "0.0.1-beta.17"
+    version: "0.0.1-beta.9"
   just_audio_platform_interface:
     dependency: "direct overridden"
     description:
@@ -559,6 +580,13 @@ packages:
       relative: false
     source: path
     version: "1.1.1"
+  win32:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/win32-5.15.0"
+      relative: false
+    source: path
+    version: "5.15.0"
   xdg_directories:
     dependency: "direct overridden"
     description:

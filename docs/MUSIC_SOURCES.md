@@ -1,4 +1,4 @@
-# Music sources for OpenTune (verified 2026-10-07)
+# Music sources for Vani (verified 2026-10-07)
 
 Primary: **Internet Archive advancedsearch API** — keyless. Free Music Archive and Jamendo both require API keys → deprioritized. Jamendo remains an optional secondary source if the user registers a free client_id later.
 

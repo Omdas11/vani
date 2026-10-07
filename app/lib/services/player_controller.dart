@@ -8,9 +8,12 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track.dart';
+import 'app_settings.dart';
 import 'archive_api.dart';
 import 'drive_source.dart';
+import 'local_library.dart';
 import 'lyrics_api.dart';
+import 'stats_service.dart';
 
 /// Loop modes: 0 = off, 1 = repeat all, 2 = repeat one.
 class PlayerController extends ChangeNotifier {
@@ -33,8 +36,19 @@ class PlayerController extends ChangeNotifier {
   /// Tracks the user added from Google Drive ("My Drive").
   final List<Track> driveTracks = [];
 
+  /// Tracks imported from the phone's own storage ("On this phone").
+  /// Always carry a localPath; offline by nature.
+  final List<Track> localTracks = [];
+
   final LyricsApi lyricsApi = LyricsApi();
   final LyricsCache lyricsCache = LyricsCache();
+
+  /// User settings (IA collections on/off, auto-load lyrics).
+  final AppSettings settings = AppSettings();
+
+  /// Listening-stats backend (Supabase, anonymous sign-in). Best-effort:
+  /// never blocks or breaks playback.
+  final StatsService stats = StatsService();
 
   bool shuffle = false;
   int loopMode = 0; // 0 off, 1 all, 2 one
@@ -47,6 +61,10 @@ class PlayerController extends ChangeNotifier {
 
   final Set<String> _activeDownloads = {};
   final Map<String, double> downloadProgress = {};
+
+  /// Set when a track completed naturally, so the auto-advance in
+  /// [next] doesn't also log it as a skip.
+  bool _suppressSkipLog = false;
 
   PlayerController() {
     _stateSub = _player.playerStateStream.listen(_onPlayerState);
@@ -61,7 +79,9 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    await settings.load();
     await _loadPersisted();
+    stats.init(); // fire-and-forget: stats must never delay startup
   }
 
   @override
@@ -106,8 +126,49 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  /// Maps a track to its stats source bucket.
+  String _statsSource(Track t) {
+    if (t.isLocalTrack) return 'local';
+    if (t.isDriveTrack) return 'drive';
+    return 'archive';
+  }
+
+  /// Logs the outgoing track as a skip when it played >= 30s.
+  /// Called before the queue moves away from the current track.
+  void _logSkip() {
+    if (_suppressSkipLog) {
+      _suppressSkipLog = false;
+      return;
+    }
+    final track = currentTrack;
+    if (track == null) return;
+    final secs = position.inSeconds;
+    if (secs < 30) return;
+    stats.logEvent(
+      trackTitle: track.title,
+      trackArtist: track.artist,
+      source: _statsSource(track),
+      durationListenedS: secs,
+      completed: false,
+    );
+  }
+
+  /// Logs the current track as fully played (natural completion).
+  void _logCompleted() {
+    final track = currentTrack;
+    if (track == null) return;
+    stats.logEvent(
+      trackTitle: track.title,
+      trackArtist: track.artist,
+      source: _statsSource(track),
+      durationListenedS: duration?.inSeconds ?? position.inSeconds,
+      completed: true,
+    );
+  }
+
   Future<void> playTracks(List<Track> tracks, int startIndex) async {
     if (tracks.isEmpty) return;
+    _logSkip();
     error = null;
     _queue = List.of(tracks);
     _rebuildOrder();
@@ -126,7 +187,7 @@ class PlayerController extends ChangeNotifier {
       uri,
       tag: MediaItem(
         id: '${track.id}::${track.title}',
-        album: track.isDriveTrack ? 'OpenTune · My Drive' : 'OpenTune · Internet Archive',
+        album: track.isDriveTrack ? 'Vani · My Drive' : 'Vani · Internet Archive',
         title: track.title,
         artist: track.artist,
         artUri: track.artworkUrl.isEmpty
@@ -169,6 +230,8 @@ class PlayerController extends ChangeNotifier {
   void _onPlayerState(PlayerState state) {
     notifyListeners();
     if (state.processingState == ProcessingState.completed) {
+      _logCompleted();
+      _suppressSkipLog = true; // the auto-advance below isn't a skip
       if (loopMode == 2) {
         _player.seek(Duration.zero);
         _player.play();
@@ -194,6 +257,7 @@ class PlayerController extends ChangeNotifier {
 
   Future<void> next({bool auto = false}) async {
     if (_queue.isEmpty) return;
+    _logSkip();
     if (_orderPos + 1 < _order.length) {
       _orderPos++;
       await _playCurrent();
@@ -215,6 +279,7 @@ class PlayerController extends ChangeNotifier {
       await _player.seek(Duration.zero);
       return;
     }
+    _logSkip();
     if (_orderPos > 0) {
       _orderPos--;
       await _playCurrent();
@@ -227,6 +292,7 @@ class PlayerController extends ChangeNotifier {
   Future<void> jumpToQueueIndex(int queueIndex) async {
     final pos = _order.indexOf(queueIndex);
     if (pos < 0) return;
+    _logSkip();
     _orderPos = pos;
     await _playCurrent();
   }
@@ -496,6 +562,35 @@ class PlayerController extends ChangeNotifier {
     return added;
   }
 
+  // ---------- local tracks ("on this phone") ----------
+
+  /// Imports audio files picked from device storage: copies them into
+  /// the app's library dir and registers them as local tracks.
+  /// Returns the number of tracks added.
+  Future<int> importLocalFiles() async {
+    final picked = await LocalLibrary.pickAudioFiles();
+    if (picked == null || picked.isEmpty) return 0;
+    final tracks = await LocalLibrary.importPicked(picked);
+    var added = 0;
+    for (final t in tracks) {
+      if (localTracks.any((e) => e.id == t.id)) continue;
+      localTracks.add(t);
+      added++;
+    }
+    if (added > 0) {
+      notifyListeners();
+      await _persist();
+    }
+    return added;
+  }
+
+  Future<void> removeLocalTrack(Track t) async {
+    localTracks.removeWhere((e) => e.id == t.id);
+    await LocalLibrary.deleteLocal(t);
+    notifyListeners();
+    await _persist();
+  }
+
   // ---------- lyrics ----------
 
   /// Identity string used to key the lyrics cache for [t].
@@ -511,6 +606,24 @@ class PlayerController extends ChangeNotifier {
     final result = await lyricsApi.fetch(
       artist: t.artist,
       title: t.title,
+      durationSeconds: duration?.inSeconds,
+    );
+    await lyricsCache.put(key, result);
+    return result;
+  }
+
+  /// Manual override: look up lyrics with user-corrected artist/title
+  /// (for bad metadata). One request; result is cached under the
+  /// override identity so repeat views don't re-hit the API.
+  Future<LyricsResult> fetchLyricsOverride(
+      Track t, String artist, String title) async {
+    final key = 'override::${artist.toLowerCase().trim()}::'
+        '${title.toLowerCase().trim()}';
+    final cached = await lyricsCache.get(key);
+    if (cached != null) return cached;
+    final result = await lyricsApi.fetch(
+      artist: artist,
+      title: title,
       durationSeconds: duration?.inSeconds,
     );
     await lyricsCache.put(key, result);
@@ -533,6 +646,8 @@ class PlayerController extends ChangeNotifier {
         'downloads', jsonEncode(downloads.map((t) => t.toJson()).toList()));
     await prefs.setString(
         'drive', jsonEncode(driveTracks.map((t) => t.toJson()).toList()));
+    await prefs.setString(
+        'local', jsonEncode(localTracks.map((t) => t.toJson()).toList()));
     await prefs.setString(
         'recent', jsonEncode(recent.map((t) => t.toJson()).toList()));
   }
@@ -565,6 +680,14 @@ class PlayerController extends ChangeNotifier {
       final dr = jsonDecode(prefs.getString('drive') ?? '[]') as List;
       for (final j in dr.whereType<Map<String, dynamic>>()) {
         driveTracks.add(Track.fromJson(j));
+      }
+      final loc = jsonDecode(prefs.getString('local') ?? '[]') as List;
+      for (final j in loc.whereType<Map<String, dynamic>>()) {
+        final t = Track.fromJson(j);
+        // Keep only files that still exist.
+        if (t.localPath != null && await File(t.localPath!).exists()) {
+          localTracks.add(t);
+        }
       }
       final rec = jsonDecode(prefs.getString('recent') ?? '[]') as List;
       for (final j in rec.whereType<Map<String, dynamic>>()) {

@@ -145,7 +145,7 @@ class LyricsApi {
     if (url == _base) return LyricsResult.notFound; // nothing to query
     try {
       final res = await http
-          .get(Uri.parse(url), headers: {'User-Agent': 'OpenTune/1.1'})
+          .get(Uri.parse(url), headers: {'User-Agent': 'Vani/1.3'})
           .timeout(const Duration(seconds: 15));
       return parseResponse(res.statusCode, res.body);
     } catch (_) {

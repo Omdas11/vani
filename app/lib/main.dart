@@ -17,7 +17,7 @@ Future<void> main() async {
   );
   final pc = PlayerController();
   await pc.init();
-  runApp(OpenTuneApp(pc: pc));
+  runApp(VaniApp(pc: pc));
 }
 
 /// Exposes the [PlayerController] down the widget tree.
@@ -33,16 +33,16 @@ class PlayerScope extends InheritedNotifier<PlayerController> {
       .notifier!;
 }
 
-class OpenTuneApp extends StatelessWidget {
+class VaniApp extends StatelessWidget {
   final PlayerController pc;
-  const OpenTuneApp({super.key, required this.pc});
+  const VaniApp({super.key, required this.pc});
 
   @override
   Widget build(BuildContext context) {
     return PlayerScope(
       pc: pc,
       child: MaterialApp(
-        title: 'OpenTune',
+        title: 'Vani',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark().copyWith(
           scaffoldBackgroundColor: const Color(0xFF121212),
@@ -96,25 +96,90 @@ class _MainShellState extends State<MainShell> {
       LibraryScreen(pc: widget.pc),
     ];
     return Scaffold(
-      body: Column(
+      // The dock + mini card float above the content; the body gets
+      // bottom padding so list content isn't hidden behind them.
+      body: Stack(
         children: [
-          Expanded(child: IndexedStack(index: _tab, children: pages)),
-          // Rebuild the mini player whenever the controller notifies.
-          AnimatedBuilder(
-            animation: widget.pc,
-            builder: (_, __) => MiniPlayer(pc: widget.pc),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 188),
+            child: IndexedStack(index: _tab, children: pages),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Floating mini-player card (Namida pattern).
+                  AnimatedBuilder(
+                    animation: widget.pc,
+                    builder: (_, __) => Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: MiniPlayer(pc: widget.pc),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Floating M3 Expressive dock (detached tonal pill).
+                  Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: _FloatingDock(
+                      tab: _tab,
+                      onTab: (i) => setState(() => _tab = i),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _tab,
-        onTap: (i) => setState(() => _tab = i),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.search), label: 'Search'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.library_music), label: 'Library'),
+    );
+  }
+}
+
+/// Detached tonal pill navigation dock in Material 3 Expressive styling:
+/// surfaceContainer fill, 28dp radius, tonal shadow, M3 pill indicator
+/// on the active destination with labels shown for the active item only
+/// (Retro Music's proven M3 pattern).
+class _FloatingDock extends StatelessWidget {
+  final int tab;
+  final ValueChanged<int> onTab;
+  const _FloatingDock({required this.tab, required this.onTab});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      borderRadius: BorderRadius.circular(28),
+      color: scheme.surfaceContainer,
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.6),
+      child: NavigationBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        height: 70,
+        labelBehavior:
+            NavigationDestinationLabelBehavior.onlyShowSelected,
+        indicatorColor: scheme.secondaryContainer,
+        selectedIndex: tab,
+        onDestinationSelected: onTab,
+        destinations: const [
+          NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Home'),
+          NavigationDestination(
+              icon: Icon(Icons.search_outlined),
+              selectedIcon: Icon(Icons.search),
+              label: 'Search'),
+          NavigationDestination(
+              icon: Icon(Icons.library_music_outlined),
+              selectedIcon: Icon(Icons.library_music),
+              label: 'Library'),
         ],
       ),
     );

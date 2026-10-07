@@ -28,10 +28,25 @@ class _SearchScreenState extends State<SearchScreen> {
       });
       return;
     }
-    setState(() {
-      _searched = true;
-      _results = widget.pc.api.search(q, rows: 30);
-    });
+    if (widget.pc.settings.iaEnabled) {
+      setState(() {
+        _searched = true;
+        _results = widget.pc.api.search(q, rows: 30);
+      });
+    } else {
+      // IA collections off: search the user's own music instead.
+      final query = q.toLowerCase();
+      final mine = [
+        ...widget.pc.driveTracks,
+        ...widget.pc.localTracks
+      ].where((t) =>
+          t.title.toLowerCase().contains(query) ||
+          t.artist.toLowerCase().contains(query));
+      setState(() {
+        _searched = true;
+        _results = Future.value(mine.toList());
+      });
+    }
   }
 
   void _onChanged(String text) {
@@ -93,7 +108,9 @@ class _SearchScreenState extends State<SearchScreen> {
             child: !_searched
                 ? Center(
                     child: Text(
-                      'Search 60,000+ open-licensed tracks\nfrom the Internet Archive.',
+                      widget.pc.settings.iaEnabled
+                          ? 'Search 60,000+ open-licensed tracks\nfrom the Internet Archive.'
+                          : 'Internet Archive search is off.\nSearching your Drive songs and phone imports.',
                       textAlign: TextAlign.center,
                       style:
                           TextStyle(color: Colors.grey[400], fontSize: 14),
@@ -109,8 +126,19 @@ class _SearchScreenState extends State<SearchScreen> {
                       }
                       final tracks = snap.data ?? [];
                       if (tracks.isEmpty) {
-                        return const Center(
-                            child: Text('No results. Try another search.'));
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Text(
+                              widget.pc.settings.iaEnabled
+                                  ? 'Not found on Internet Archive — add it via My Drive.'
+                                  : 'No matches in your music.',
+                              textAlign: TextAlign.center,
+                              style:
+                                  TextStyle(color: Colors.grey[400]),
+                            ),
+                          ),
+                        );
                       }
                       return ListView.builder(
                         itemCount: tracks.length,

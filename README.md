@@ -1,4 +1,8 @@
-# OpenTune
+# Vani
+
+**Vani** (a name of Saraswati, goddess of music) — a Spotify-style music
+player for **open-licensed music** — real Android app (Flutter), dark
+Material 3 UI, background playback with notification controls.
 
 A Spotify-style music player for **open-licensed music** — real Android app
 (Flutter), dark Material 3 UI, background playback with notification controls.
@@ -11,8 +15,10 @@ Get the APK for your phone from
 modern phones). Sideload it: allow "Install unknown apps" for your
 browser/file manager when asked, then open the APK to install.
 
-No accounts, no API keys, no ads, no tracking. All music streams from the
-**Internet Archive** under Creative Commons licenses.
+No logins, no ads, no tracking SDKs. Music comes from the
+**Internet Archive** (Creative Commons), your **Google Drive**, or
+**your phone storage**. Anonymous listening stats (no email, no name)
+power the "Your Stats" screen — see below.
 
 ## Music source & license notes
 
@@ -46,11 +52,23 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
 - **Library** — Liked Songs, Playlists (create / rename / delete, add &
   remove tracks), Downloads (offline tracks with offline badge),
   Recently Played (last 50), **My Drive** (your own songs from
-  Google Drive — see below).
-- **Now Playing** — full-screen sheet: artwork, title/artist, like button,
+  Google Drive — see below), **On this phone** (MP3s imported from
+  your phone storage — see below), **Your Stats** (listening stats).
+- **Settings** (gear icon on Home) — toggle **Internet Archive
+  collections** on/off (off = Drive + phone music only; Archive search
+  is skipped), toggle **auto-load lyrics**, see stats-backend status.
+- **Now Playing** — full-screen sheet: oversized vinyl record artwork
+  shifted off the left edge, spinning while music plays; ambient glow
+  behind the vinyl tinted by the cover art's colors; frosted-glass
+  control panels; holographic shimmer sweep; title/artist, like button,
   play/pause, draggable seek bar, next/previous, shuffle, repeat
   (off → all → one), up-next queue (tap to jump), download-for-offline
-  button with progress, license/attribution line, **lyrics button**.
+  button with progress, license/attribution line, **lyrics button** and
+  a tappable **lyrics preview** under the track info.
+- **Floating dock** — the bottom navigation is a detached floating
+  Material 3 Expressive pill dock; the mini player is a floating
+  frosted-glass card above it with a thin progress line (tap or swipe
+  up to open the full player).
 - **Lyrics** — tap the lyrics icon on Now Playing to look up the song on
   the free lrclib.net database. Synced (karaoke-style) lyrics
   auto-scroll and highlight the current line as the song plays; plain
@@ -71,14 +89,14 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
 
 ## My Drive — your own music from Google Drive
 
-OpenTune has no server of its own. To play your personal collection,
+Vani has no server of its own. To play your personal collection,
 host the MP3s on **Google Drive** and add them in
 Library → **My Drive**:
 
 1. In the Google Drive app/site, upload your MP3s.
 2. Share each file (or the whole folder) as **"Anyone with the link"**
    → **Viewer**. Without this the app can't stream them.
-3. In OpenTune: Library → My Drive → **"Add song from link"** → paste
+3. In Vani: Library → My Drive → **"Add song from link"** → paste
    the share link (title/artist optional — you can edit them later).
 4. Your songs now play like any other track: queue, shuffle, repeat,
    like, add to playlists, and download for offline.
@@ -110,6 +128,26 @@ error — waiting a while fixes it); shared links must stay
 server (e.g. Navidrome/Subsonic) beats Drive — the app is ready for
 that whenever you are.
 
+## On this phone — your MP3s from phone storage
+
+Library → **On this phone** → import audio files from your phone.
+The app copies them into its own storage (no storage permission
+needed — it uses the system file picker), so they play offline and
+survive restarts. Files named `Artist - Title.mp3` get proper titles
+automatically; you can rename later. Removing an import deletes the
+app's copy (your original file is untouched).
+
+## Your Stats — listening stats backend
+
+Vani records anonymous listening stats (Supabase project `opentune`,
+Mumbai region): an event is logged when a track finishes or plays
+past 30 seconds before a skip. No account, no email — one anonymous
+device id per install, and row-level security keeps each device to
+its own rows. Library → **Your Stats** shows total listening time,
+top tracks/artists (7 days / 30 days / all time), and a per-source
+breakdown. If the backend is unreachable, the app works fully offline
+— stats just stay local-only.
+
 ## Rebuild
 
 Every shell command must source the environment first:
@@ -132,7 +170,9 @@ Notes:
 - Two build-environment patches live in the `.pub_pkgs` mirror (NOT in
   upstream packages — re-apply if you re-mirror from scratch):
   `audio_service` `compileSdk = 35 → 36` (android-35 platform isn't
-  installed) and `just_audio`/`audio_session` `compileSdk 34 → 36`.
+  installed), `just_audio`/`audio_session` `compileSdk 34 → 36`, and
+  `file_picker` `compileSdk 34 → 36` (its `flutter_plugin_android_lifecycle`
+  dep requires 36).
 - **Proxy CA rotation:** if Gradle/Java HTTPS suddenly fails with
   `PKIX ... signature check failed` while curl works, the egress proxy's
   MITM CA has rotated again — re-import the current CA into

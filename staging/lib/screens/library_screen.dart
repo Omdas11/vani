@@ -3,21 +3,46 @@ import '../models/track.dart';
 import '../services/player_controller.dart';
 import '../widgets/track_tile.dart';
 import 'drive_screen.dart';
+import 'stats_screen.dart';
 
 /// Library: recently played, liked songs, playlists, offline downloads.
 class LibraryScreen extends StatelessWidget {
   final PlayerController pc;
   const LibraryScreen({super.key, required this.pc});
 
+  Future<void> _importFromPhone(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final added = await pc.importLocalFiles();
+      messenger.showSnackBar(SnackBar(
+        content: Text(added > 0
+            ? 'Imported $added track${added == 1 ? '' : 's'} from your phone.'
+            : 'No new tracks imported.'),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Import failed: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Your Library')),
+      body: AnimatedBuilder(
+        animation: pc,
+        builder: (_, __) => _body(context),
+      ),
+    );
+  }
+
+  Widget _body(BuildContext context) {
     final liked = pc.likedSongs;
     final names = pc.playlists.keys.toList();
     final dls = pc.downloads;
     final recent = pc.recent;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Your Library')),
-      body: ListView(
+    return ListView(
         children: [
           if (recent.isNotEmpty) ...[
             const Padding(
@@ -112,6 +137,46 @@ class LibraryScreen extends StatelessWidget {
               builder: (_) => DriveScreen(pc: pc),
             )),
           ),
+          _headerTile(
+            context,
+            icon: Icons.smartphone_outlined,
+            color: Colors.teal,
+            title: 'On this phone',
+            subtitle: pc.localTracks.isEmpty
+                ? 'Import MP3s from your phone storage'
+                : '${pc.localTracks.length} tracks · stored in the app',
+            onTap: () => _importFromPhone(context),
+          ),
+          if (pc.localTracks.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 72, right: 16),
+              child: TextButton.icon(
+                icon: const Icon(Icons.folder_open_outlined, size: 18),
+                label: const Text('View imported tracks'),
+                style: TextButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  foregroundColor: Colors.grey[300],
+                ),
+                onPressed: () => _openTrackList(
+                  context,
+                  'On this phone',
+                  pc.localTracks,
+                  allowRemove: (t) => pc.removeLocalTrack(t),
+                  removeLabel: 'Delete import',
+                  showOfflineBadge: true,
+                ),
+              ),
+            ),
+          _headerTile(
+            context,
+            icon: Icons.bar_chart_outlined,
+            color: Colors.purple,
+            title: 'Your Stats',
+            subtitle: 'Listening time, top tracks & artists',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => StatsScreen(pc: pc),
+            )),
+          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
             child: Text('Playlists',
@@ -173,8 +238,7 @@ class LibraryScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
         ],
-      ),
-    );
+      );
   }
 
   Widget _headerTile(BuildContext context,

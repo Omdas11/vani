@@ -1,7 +1,8 @@
 /// A single playable track. Stream URLs are resolved lazily from the
 /// Internet Archive; downloads carry a [localPath] for offline playback.
 /// Tracks the user adds from Google Drive use [source] == 'drive' and
-/// carry their stream URL directly.
+/// carry their stream URL directly. Tracks imported from phone storage
+/// use [source] == 'local' and always carry a [localPath].
 class Track {
   final String id; // IA identifier, or 'drive:<fileId>' / 'driveurl:<hash>'
   final String title;
@@ -9,7 +10,7 @@ class Track {
   final String license; // 'CC0', 'CC BY 4.0', 'CC BY 3.0', or 'Drive'
   final String licenseUrl;
   final String artworkUrl;
-  final String source; // 'archive' or 'drive'
+  final String source; // 'archive', 'drive', or 'local'
   String? streamUrl; // resolved at play time (preset for Drive tracks)
   String? localPath; // set when downloaded
 
@@ -28,6 +29,7 @@ class Track {
   bool get isDownloaded => localPath != null && localPath!.isNotEmpty;
   bool get needsAttribution => license != 'CC0' && source == 'archive';
   bool get isDriveTrack => source == 'drive';
+  bool get isLocalTrack => source == 'local';
 
   Track copyWith({String? title, String? artist}) => Track(
         id: id,

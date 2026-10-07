@@ -51,6 +51,10 @@ def satisfies(version, constraint):
     c = (constraint or "any").strip()
     if c in ("any", ""):
         return True
+    # Build metadata (+2, +hotfix) is not part of precedence: strip it so
+    # constraints like ^0.3.4+2 match correctly instead of falling through
+    # to "any".
+    c = re.sub(r"\+[0-9A-Za-z.-]+", "", c)
     v = parse_version(version)
     # caret
     m = re.fullmatch(r"\^(\d+\.\d+\.\d+)", c)

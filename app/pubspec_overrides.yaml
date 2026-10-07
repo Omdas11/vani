@@ -17,18 +17,24 @@ dependency_overrides:
     path: /home/hatch/workspace/opentune/.pub_pkgs/code_assets-2.1.0
   collection:
     path: /home/hatch/workspace/opentune/.pub_pkgs/collection-1.19.1
+  cross_file:
+    path: /home/hatch/workspace/opentune/.pub_pkgs/cross_file-0.3.5+5
   crypto:
     path: /home/hatch/workspace/opentune/.pub_pkgs/crypto-3.0.7
   ffi:
     path: /home/hatch/workspace/opentune/.pub_pkgs/ffi-2.2.0
   file:
     path: /home/hatch/workspace/opentune/.pub_pkgs/file-7.0.1
+  file_picker:
+    path: /home/hatch/workspace/opentune/.pub_pkgs/file_picker-8.3.7
   fixnum:
     path: /home/hatch/workspace/opentune/.pub_pkgs/fixnum-1.1.1
   flutter_cache_manager:
     path: /home/hatch/workspace/opentune/.pub_pkgs/flutter_cache_manager-3.4.5
   flutter_lints:
     path: /home/hatch/workspace/opentune/.pub_pkgs/flutter_lints-4.0.0
+  flutter_plugin_android_lifecycle:
+    path: /home/hatch/workspace/opentune/.pub_pkgs/flutter_plugin_android_lifecycle-2.0.35
   hooks:
     path: /home/hatch/workspace/opentune/.pub_pkgs/hooks-2.2.0
   http:
@@ -46,7 +52,7 @@ dependency_overrides:
   just_audio:
     path: /home/hatch/workspace/opentune/.pub_pkgs/just_audio-0.9.46
   just_audio_background:
-    path: /home/hatch/workspace/opentune/.pub_pkgs/just_audio_background-0.0.1-beta.17
+    path: /home/hatch/workspace/opentune/.pub_pkgs/just_audio_background-0.0.1-beta.9
   just_audio_platform_interface:
     path: /home/hatch/workspace/opentune/.pub_pkgs/just_audio_platform_interface-4.6.0
   just_audio_web:
@@ -123,6 +129,8 @@ dependency_overrides:
     path: /home/hatch/workspace/opentune/.pub_pkgs/uuid-4.6.0
   web:
     path: /home/hatch/workspace/opentune/.pub_pkgs/web-1.1.1
+  win32:
+    path: /home/hatch/workspace/opentune/.pub_pkgs/win32-5.15.0
   xdg_directories:
     path: /home/hatch/workspace/opentune/.pub_pkgs/xdg_directories-1.1.0
   yaml:

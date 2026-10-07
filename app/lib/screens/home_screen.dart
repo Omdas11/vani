@@ -3,8 +3,12 @@ import '../models/track.dart';
 import '../services/archive_api.dart';
 import '../services/player_controller.dart';
 import '../widgets/track_tile.dart';
+import 'drive_screen.dart';
+import 'settings_screen.dart';
 
 /// Home: genre chips + horizontal shelves of open-licensed tracks.
+/// When "Internet Archive collections" is off in Settings, Home shows
+/// the user's own music (Drive + phone imports) instead.
 class HomeScreen extends StatefulWidget {
   final PlayerController pc;
   const HomeScreen({super.key, required this.pc});
@@ -21,9 +25,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _future = _loadAll();
+    widget.pc.settings.addListener(_onSettings);
   }
 
+  @override
+  void dispose() {
+    widget.pc.settings.removeListener(_onSettings);
+    super.dispose();
+  }
+
+  void _onSettings() => setState(() {});
+
   Future<Map<String, List<Track>>> _loadAll() async {
+    if (!widget.pc.settings.iaEnabled) return {};
     final out = <String, List<Track>>{};
     for (final g in ArchiveApi.genres.keys) {
       try {
@@ -39,9 +53,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OpenTune',
+        title: const Text('Vani',
             style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => SettingsScreen(pc: widget.pc),
+            )),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: LicenseBadge(Track(
@@ -55,7 +76,74 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<Map<String, List<Track>>>(
+      body: widget.pc.settings.iaEnabled ? _archiveBody() : _ownMusicBody(),
+    );
+  }
+
+  /// Shown when the IA toggle is off: the user's own music only.
+  Widget _ownMusicBody() {
+    final pc = widget.pc;
+    final mine = [...pc.driveTracks, ...pc.localTracks];
+    return AnimatedBuilder(
+      animation: pc,
+      builder: (_, __) {
+        if (mine.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.library_music_outlined,
+                      size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Internet Archive collections are off.\nAdd your own music to get started.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.cloud_outlined),
+                    label: const Text('Open My Drive'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1DB954),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => DriveScreen(pc: pc)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            const Text('Your music',
+                style:
+                    TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text('${mine.length} tracks · Drive + this phone',
+                style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+            const SizedBox(height: 8),
+            ...mine.asMap().entries.map((e) => TrackTile(
+                  track: e.value,
+                  contextQueue: mine,
+                  indexInQueue: e.key,
+                  pc: pc,
+                )),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _archiveBody() {
+    return FutureBuilder<Map<String, List<Track>>>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
@@ -102,8 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
-      ),
-    );
+      );
   }
 
   Widget _genreChips() {
