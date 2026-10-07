@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import '../services/player_controller.dart';
 import '../widgets/lyrics_sheet.dart';
 import '../widgets/track_tile.dart';
+import '../widgets/vinyl_record.dart';
 
-/// Full-screen now-playing view: artwork, seek bar, transport controls,
-/// shuffle/repeat, like/download/lyrics actions, attribution, and the
-/// up-next queue.
+/// Full-screen now-playing view: vinyl record artwork, seek bar, transport
+/// controls, shuffle/repeat, like/download/lyrics actions, attribution,
+/// and the up-next queue.
 ///
 /// The whole screen rebuilds on every [PlayerController] tick so the
 /// seek bar, transport buttons and queue stay in sync with playback.
+/// The vinyl spins only while audio is playing (driven off
+/// [PlayerController.isPlaying]), with a slow holographic shimmer sweep.
 class PlayerScreen extends StatefulWidget {
   final PlayerController pc;
   const PlayerScreen({super.key, required this.pc});
@@ -17,8 +20,41 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with TickerProviderStateMixin {
   double? _dragMs; // non-null while the user is dragging the seek bar
+  late final AnimationController _spin;
+  late final AnimationController _shimmer;
+
+  @override
+  void initState() {
+    super.initState();
+    // ~14s per revolution: a graceful vinyl feel rather than literal 33rpm.
+    _spin = AnimationController(
+        vsync: this, duration: const Duration(seconds: 14));
+    _shimmer = AnimationController(
+        vsync: this, duration: const Duration(seconds: 9));
+    widget.pc.addListener(_syncVinyl);
+    _syncVinyl();
+  }
+
+  void _syncVinyl() {
+    if (widget.pc.isPlaying) {
+      if (!_spin.isAnimating) _spin.repeat();
+      if (!_shimmer.isAnimating) _shimmer.repeat();
+    } else {
+      _spin.stop();
+      _shimmer.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.pc.removeListener(_syncVinyl);
+    _spin.dispose();
+    _shimmer.dispose();
+    super.dispose();
+  }
 
   String _fmt(Duration d) {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -97,7 +133,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24),
             children: [
               const SizedBox(height: 8),
-              Center(child: TrackArt(track, size: 300, radius: 12)),
+              Center(
+                child: VinylRecord(
+                  artworkUrl: track.artworkUrl,
+                  rotation: _spin,
+                  shimmer: _shimmer,
+                  size: 300,
+                ),
+              ),
               const SizedBox(height: 24),
               Text(track.title,
                   style: const TextStyle(
@@ -196,13 +239,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 color: Color(0xFF1DB954)),
                           ),
                         )
-                      : IconButton(
-                          icon: Icon(pc.isPlaying
-                              ? Icons.pause_circle_filled
-                              : Icons.play_circle_filled),
-                          iconSize: 64,
-                          color: Colors.white,
-                          onPressed: pc.togglePlayPause,
+                      : Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Holographic ring rotating behind the play button.
+                            AnimatedBuilder(
+                              animation: _shimmer,
+                              builder: (_, __) => Container(
+                                width: 78,
+                                height: 78,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: SweepGradient(
+                                    transform: GradientRotation(
+                                        _shimmer.value * 6.28318),
+                                    colors: const [
+                                      Color(0x001DB954),
+                                      Color(0x551DB954),
+                                      Color(0x55A47FE8),
+                                      Color(0x555EC8E8),
+                                      Color(0x001DB954),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(pc.isPlaying
+                                  ? Icons.pause_circle_filled
+                                  : Icons.play_circle_filled),
+                              iconSize: 64,
+                              color: Colors.white,
+                              onPressed: pc.togglePlayPause,
+                            ),
+                          ],
                         ),
                   IconButton(
                     icon: const Icon(Icons.skip_next),

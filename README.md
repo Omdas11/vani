@@ -3,6 +3,14 @@
 A Spotify-style music player for **open-licensed music** — real Android app
 (Flutter), dark Material 3 UI, background playback with notification controls.
 
+## Download
+
+Get the APK for your phone from
+**[GitHub Releases](https://github.com/Omdas11/opentune/releases)**
+(all versions: pick the latest, `app-arm64-v8a-release.apk` fits most
+modern phones). Sideload it: allow "Install unknown apps" for your
+browser/file manager when asked, then open the APK to install.
+
 No accounts, no API keys, no ads, no tracking. All music streams from the
 **Internet Archive** under Creative Commons licenses.
 
