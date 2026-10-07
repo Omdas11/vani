@@ -1,20 +1,19 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/artwork_colors.dart';
 import '../services/player_controller.dart';
+import '../widgets/glass_panel.dart';
 import '../widgets/lyrics_sheet.dart';
 import '../widgets/track_tile.dart';
 import '../widgets/vinyl_record.dart';
 
 /// Full-screen now-playing view.
 ///
-/// v1.3.0 layout: the vinyl is oversized and shifted left so ~40% of it
-/// sits off the left screen edge (edge-crop aesthetic). Behind it, an
-/// ambient glow derived from the cover art's dominant color fades
-/// between tracks. Controls and track info sit in frosted-glass panels.
-/// The vinyl spins only while audio is playing; the holographic shimmer
-/// sweep from v1.2.0 is kept.
+/// v1.4.0 layout: the vinyl is a complete circle again, large and centered
+/// (the v1.3.0 edge-crop read as broken on-device). Behind it, an ambient
+/// glow derived from the cover art's dominant color fades between tracks.
+/// Controls and track info sit in frosted-glass panels. The vinyl spins
+/// only while audio is playing; the holographic shimmer sweep is kept.
 class PlayerScreen extends StatefulWidget {
   final PlayerController pc;
   const PlayerScreen({super.key, required this.pc});
@@ -131,33 +130,17 @@ class _PlayerScreenState extends State<PlayerScreen>
         : '"${track.title}" · ${track.license} · via Internet Archive';
   }
 
-  /// Frosted-glass panel. Two of these on screen is cheap enough;
-  /// the blur is bounded by the ClipRRect.
+  /// Frosted-glass panel (shared widget — see glass_panel.dart).
   Widget _glass({required Widget child, double radius = 20}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(radius),
-            border: Border.all(
-                color: Colors.white.withValues(alpha: 0.10)),
-          ),
-          child: child,
-        ),
-      ),
-    );
+    return GlassPanel(radius: radius, child: child);
   }
 
   @override
   Widget build(BuildContext context) {
     final pc = widget.pc;
     final screenW = MediaQuery.of(context).size.width;
-    // Oversized disc; 40% hidden off the left edge.
-    final vinylSize = (screenW * 1.25).clamp(340.0, 480.0);
+    // Complete circle, large and centered (v1.4.0: edge-crop reverted).
+    final vinylSize = (screenW * 0.86).clamp(280.0, 420.0);
     return AnimatedBuilder(
       animation: pc,
       builder: (_, __) {
@@ -202,26 +185,21 @@ class _PlayerScreenState extends State<PlayerScreen>
           ),
           body: Column(
             children: [
-              // ---- Vinyl stage: ambient glow + edge-cropped disc ----
+              // ---- Vinyl stage: ambient glow + full centered disc ----
               SizedBox(
-                height: vinylSize * 0.88,
+                height: vinylSize * 1.04,
                 child: Stack(
-                  clipBehavior: Clip.none,
                   children: [
                     Positioned.fill(
                       child: _AmbientGlow(
                           pc: pc, artworkUrl: track.artworkUrl),
                     ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Transform.translate(
-                        offset: Offset(-vinylSize * 0.4, 0),
-                        child: VinylRecord(
-                          artworkUrl: track.artworkUrl,
-                          rotation: _spin,
-                          shimmer: _shimmer,
-                          size: vinylSize,
-                        ),
+                    Center(
+                      child: VinylRecord(
+                        artworkUrl: track.artworkUrl,
+                        rotation: _spin,
+                        shimmer: _shimmer,
+                        size: vinylSize,
                       ),
                     ),
                   ],
@@ -348,7 +326,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                                 iconSize: 40,
                                 onPressed: pc.previous,
                               ),
-                              pc.isLoading
+                              // Loading spinner only when NOT playing: the
+                              // controller guarantees isLoading is cleared
+                              // the moment audio plays, so a stuck spinner
+                              // can never cover the play/pause button.
+                              pc.isLoading && !pc.isPlaying
                                   ? const SizedBox(
                                       width: 64,
                                       height: 64,

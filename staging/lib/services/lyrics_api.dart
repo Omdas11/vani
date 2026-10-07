@@ -33,8 +33,10 @@ class LyricsResult {
   static const notFound = LyricsResult(found: false);
 }
 
-/// Free keyless lyrics lookup via lrclib.net, plus LRC parsing and a
-/// local cache. Lookups are explicit (one per user tap) — no prefetching.
+/// Free keyless lyrics lookup: lrclib.net first, then KuGou as a fallback
+/// (the same two sources the open-source Namida player uses, in the same
+/// order). Plus LRC parsing and a local cache. Lookups are explicit
+/// (one per user tap, or one auto-load per track) — no prefetching.
 class LyricsApi {
   static const _base = 'https://lrclib.net/api/get';
 
@@ -134,8 +136,21 @@ class LyricsApi {
     );
   }
 
-  /// One explicit lookup. Returns [LyricsResult.notFound] on any failure.
+  /// One explicit lookup: lrclib first, KuGou fallback.
+  /// Returns [LyricsResult.notFound] on any failure.
   Future<LyricsResult> fetch({
+    String? artist,
+    String? title,
+    int? durationSeconds,
+  }) async {
+    final r = await _fetchLrclib(
+        artist: artist, title: title, durationSeconds: durationSeconds);
+    if (r.found) return r;
+    return _fetchKugou(
+        artist: artist, title: title, durationSeconds: durationSeconds);
+  }
+
+  Future<LyricsResult> _fetchLrclib({
     String? artist,
     String? title,
     int? durationSeconds,
@@ -145,9 +160,188 @@ class LyricsApi {
     if (url == _base) return LyricsResult.notFound; // nothing to query
     try {
       final res = await http
-          .get(Uri.parse(url), headers: {'User-Agent': 'Vani/1.3'})
+          .get(Uri.parse(url), headers: {'User-Agent': 'Vani/1.4'})
           .timeout(const Duration(seconds: 15));
       return parseResponse(res.statusCode, res.body);
+    } catch (_) {
+      return LyricsResult.notFound;
+    }
+  }
+
+  // ---------- KuGou fallback (no key, public JSON endpoints) ----------
+
+  /// Noise tokens stripped before fuzzy-matching titles, mirroring
+  /// Namida's approach.
+  static const _noiseTokens = {
+    'official',
+    'video',
+    'audio',
+    'lyrics',
+    'lyric',
+    'music',
+    'hd',
+    'hq',
+    '4k',
+    'visualizer',
+    'mv',
+    'lyrical',
+  };
+
+  /// Public for testing: normalizes a string for fuzzy comparison.
+  static String normalizeForMatch(String s) {
+    var t = s.toLowerCase();
+    t = t.replaceAll(RegExp(r'\([^)]*\)'), ' ');
+    t = t.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
+    t = t.replaceAll(RegExp(r'[^a-z0-9 ]'), ' ');
+    final tokens =
+        t.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    return tokens.where((w) => !_noiseTokens.contains(w)).join(' ');
+  }
+
+  /// Public for testing: scores a KuGou candidate 0..1.
+  /// 0.7 * title token overlap + 0.3 * artist token overlap, minus a
+  /// duration-mismatch penalty. Mirrors Namida's 0.7 accept threshold.
+  static double scoreKugouCandidate({
+    required String candTitle,
+    required String candArtist,
+    required int candDurationMs,
+    required String wantTitle,
+    required String wantArtist,
+    int? wantDurationSeconds,
+  }) {
+    double overlap(String a, String b) {
+      final ta = normalizeForMatch(a).split(' ').where((w) => w.isNotEmpty).toSet();
+      final tb = normalizeForMatch(b).split(' ').where((w) => w.isNotEmpty).toSet();
+      if (ta.isEmpty || tb.isEmpty) return 0;
+      return ta.intersection(tb).length / ta.union(tb).length;
+    }
+
+    var score =
+        0.7 * overlap(candTitle, wantTitle) + 0.3 * overlap(candArtist, wantArtist);
+    if (wantDurationSeconds != null && wantDurationSeconds > 0) {
+      final wantMs = wantDurationSeconds * 1000;
+      final rel = (candDurationMs - wantMs).abs() / wantMs;
+      score -= rel.clamp(0.0, 1.0) * 0.4;
+    }
+    return score.clamp(0.0, 1.0);
+  }
+
+  /// Public for testing: builds the KuGou search URL.
+  static String kugouSearchUrl({
+    String? artist,
+    String? title,
+    int? durationSeconds,
+  }) {
+    final a = (artist ?? '').trim();
+    final t = (title ?? '').trim();
+    final keyword = a.isNotEmpty ? '$a - $t' : t;
+    final durMs = durationSeconds != null && durationSeconds > 0
+        ? (durationSeconds * 1000).toString()
+        : '';
+    return 'https://lyrics.kugou.com/search?ver=1&man=yes&client=pc'
+        '&keyword=${Uri.encodeComponent(keyword)}'
+        '&duration=$durMs&hash=';
+  }
+
+  /// Public for testing: picks the best candidate from a KuGou search
+  /// response, or null when nothing scores above the accept threshold.
+  /// Returns {'id','accesskey'} of the winner.
+  static Map<String, String>? pickKugouCandidate(
+    Map<String, dynamic> json, {
+    required String wantTitle,
+    required String wantArtist,
+    int? wantDurationSeconds,
+  }) {
+    final cands = json['candidates'];
+    if (cands is! List) return null;
+    var bestScore = 0.7; // Namida's accept threshold
+    Map<String, String>? best;
+    final seen = <String>{};
+    for (final c in cands.whereType<Map<String, dynamic>>()) {
+      final id = '${c['id']}';
+      final accesskey = '${c['accesskey']}';
+      if (id.isEmpty || accesskey.isEmpty) continue;
+      final dedupe =
+          '${c['song']}|${c['singer']}|${c['duration']}';
+      if (!seen.add(dedupe)) continue; // KuGou repeats ids
+      final score = scoreKugouCandidate(
+        candTitle: '${c['song']}',
+        candArtist: '${c['singer']}',
+        candDurationMs: (c['duration'] as num?)?.toInt() ?? 0,
+        wantTitle: wantTitle,
+        wantArtist: wantArtist,
+        wantDurationSeconds: wantDurationSeconds,
+      );
+      if (score > bestScore) {
+        bestScore = score;
+        best = {'id': id, 'accesskey': accesskey};
+      }
+    }
+    return best;
+  }
+
+  /// Public for testing: decodes a KuGou download response
+  /// ({"content": "<base64 LRC>"}) into an LRC string, or null.
+  static String? decodeKugouContent(Map<String, dynamic> json) {
+    final b64 = json['content'];
+    if (b64 is! String || b64.isEmpty) return null;
+    try {
+      return utf8.decode(base64Decode(b64));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<LyricsResult> _fetchKugou({
+    String? artist,
+    String? title,
+    int? durationSeconds,
+  }) async {
+    final t = (title ?? '').trim();
+    if (t.isEmpty || t == 'Unknown title') return LyricsResult.notFound;
+    try {
+      final searchRes = await http
+          .get(
+            Uri.parse(kugouSearchUrl(
+                artist: artist,
+                title: title,
+                durationSeconds: durationSeconds)),
+            headers: {'User-Agent': 'Vani/1.4'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (searchRes.statusCode != 200) return LyricsResult.notFound;
+      final searchJson = jsonDecode(searchRes.body);
+      if (searchJson is! Map<String, dynamic>) {
+        return LyricsResult.notFound;
+      }
+      final pick = pickKugouCandidate(
+        searchJson,
+        wantTitle: t,
+        wantArtist: (artist ?? '').trim(),
+        wantDurationSeconds: durationSeconds,
+      );
+      if (pick == null) return LyricsResult.notFound;
+      final dlRes = await http
+          .get(
+            Uri.parse('https://lyrics.kugou.com/download?ver=1&client=pc'
+                '&id=${Uri.encodeComponent(pick['id']!)}'
+                '&accesskey=${Uri.encodeComponent(pick['accesskey']!)}'
+                '&fmt=lrc&charset=utf8'),
+            headers: {'User-Agent': 'Vani/1.4'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (dlRes.statusCode != 200) return LyricsResult.notFound;
+      final dlJson = jsonDecode(dlRes.body);
+      if (dlJson is! Map<String, dynamic>) return LyricsResult.notFound;
+      final lrc = decodeKugouContent(dlJson);
+      if (lrc == null) return LyricsResult.notFound;
+      final synced = parseLrc(lrc);
+      if (synced.isEmpty) return LyricsResult.notFound;
+      return LyricsResult(
+        found: true,
+        synced: synced,
+        plain: synced.map((l) => l.text).join('\n'),
+      );
     } catch (_) {
       return LyricsResult.notFound;
     }

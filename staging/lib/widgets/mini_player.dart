@@ -1,7 +1,7 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../screens/player_screen.dart';
 import '../services/player_controller.dart';
+import 'glass_panel.dart';
 import 'track_tile.dart';
 
 /// Floating mini-player card (Namida pattern): a detached rounded card
@@ -31,25 +31,12 @@ class MiniPlayer extends StatelessWidget {
       onVerticalDragEnd: (d) {
         if ((d.primaryVelocity ?? 0) < -300) _open(context);
       },
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Container(
-            height: 76,
-            decoration: BoxDecoration(
-              color: Colors.grey[900]!.withValues(alpha: 0.72),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.10)),
-              boxShadow: const [
-                BoxShadow(
-                    color: Colors.black54,
-                    blurRadius: 16,
-                    offset: Offset(0, 6)),
-              ],
-            ),
-            child: Column(
+      child: GlassPanel(
+        radius: 20,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: 76,
+          child: Column(
               children: [
                 Expanded(
                   child: Row(
@@ -87,7 +74,9 @@ class MiniPlayer extends StatelessWidget {
                         color: Colors.white70,
                         onPressed: pc.previous,
                       ),
-                      if (pc.isLoading)
+                      // Spinner only while genuinely loading (never while
+                      // audio is playing — see the controller invariant).
+                      if (pc.isLoading && !pc.isPlaying)
                         const Padding(
                           padding: EdgeInsets.all(12),
                           child: SizedBox(
@@ -130,7 +119,6 @@ class MiniPlayer extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }

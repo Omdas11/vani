@@ -17,3 +17,5 @@ build/
 .DS_Store
 
 # Release APKs live in releases/ as committed copies of the built artifacts.
+
+release-*/

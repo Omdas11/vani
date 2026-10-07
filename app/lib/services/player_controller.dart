@@ -24,6 +24,19 @@ class PlayerController extends ChangeNotifier {
   List<int> _order = []; // playback order (shuffled or straight)
   int _orderPos = 0;
 
+  /// Background-player sequence bookkeeping. The system notification only
+  /// shows next/previous buttons when the background player actually holds
+  /// a multi-item queue, so the app's queue is mirrored into a
+  /// [ConcatenatingAudioSource]: `_seqPlayPos[s]` is the play-order
+  /// position sitting at player sequence index `s`.
+  List<int> _seqPlayPos = [];
+  ConcatenatingAudioSource? _concat;
+
+  /// Load generation: guards against overlapping _playCurrent calls and
+  /// stuck futures. Only the latest generation may mutate loading state
+  /// or replace the player's audio source.
+  int _loadGen = 0;
+
   bool isLoading = false;
   String? error;
 
@@ -56,15 +69,13 @@ class PlayerController extends ChangeNotifier {
   StreamSubscription? _stateSub;
   StreamSubscription? _posSub;
   StreamSubscription? _durSub;
+  StreamSubscription? _indexSub;
+  StreamSubscription? _playingSub;
   Duration position = Duration.zero;
   Duration? duration;
 
   final Set<String> _activeDownloads = {};
   final Map<String, double> downloadProgress = {};
-
-  /// Set when a track completed naturally, so the auto-advance in
-  /// [next] doesn't also log it as a skip.
-  bool _suppressSkipLog = false;
 
   PlayerController() {
     _stateSub = _player.playerStateStream.listen(_onPlayerState);
@@ -75,6 +86,19 @@ class PlayerController extends ChangeNotifier {
     _durSub = _player.durationStream.listen((d) {
       duration = d;
       notifyListeners();
+    });
+    // The player — not the app — is the source of truth for track
+    // position inside the background sequence (notification buttons,
+    // auto-advance, loop modes all move it).
+    _indexSub = _player.currentIndexStream.listen(_onSequenceIndex);
+    // Invariant: "loading" can never be true while audio is playing.
+    // This guarantees the play/pause slot never shows a stuck spinner
+    // even if a load future hangs.
+    _playingSub = _player.playingStream.listen((playing) {
+      if (playing && isLoading) {
+        isLoading = false;
+        notifyListeners();
+      }
     });
   }
 
@@ -89,6 +113,8 @@ class PlayerController extends ChangeNotifier {
     _stateSub?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
+    _indexSub?.cancel();
+    _playingSub?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -134,12 +160,10 @@ class PlayerController extends ChangeNotifier {
   }
 
   /// Logs the outgoing track as a skip when it played >= 30s.
-  /// Called before the queue moves away from the current track.
+  /// Called before the queue moves away from the current track via a
+  /// path that does NOT go through the player's sequence index stream
+  /// (which logs for itself).
   void _logSkip() {
-    if (_suppressSkipLog) {
-      _suppressSkipLog = false;
-      return;
-    }
     final track = currentTrack;
     if (track == null) return;
     final secs = position.inSeconds;
@@ -197,47 +221,141 @@ class PlayerController extends ChangeNotifier {
     );
   }
 
+  /// Maps the app's loop mode onto just_audio's: repeat-all is handled by
+  /// the player itself so auto-advance stays in sync with the notification.
+  void _applyLoopMode() {
+    _player.setLoopMode(switch (loopMode) {
+      2 => LoopMode.one,
+      1 => LoopMode.all,
+      _ => LoopMode.off,
+    });
+  }
+
   Future<void> _playCurrent() async {
+    final gen = ++_loadGen;
     final track = currentTrack;
     if (track == null) return;
     isLoading = true;
     error = null;
     notifyListeners();
     try {
-      final url = await api.resolveStreamUrl(track);
+      final url = await api
+          .resolveStreamUrl(track)
+          .timeout(const Duration(seconds: 45));
+      // A newer load superseded us: bail without touching shared state.
+      if (gen != _loadGen) return;
       if (url == null) {
         error = 'Could not load "${track.title}"';
-        isLoading = false;
-        notifyListeners();
         return;
       }
-      await _player.setAudioSource(_taggedSource(track, url));
-      if (loopMode == 2) {
-        await _player.setLoopMode(LoopMode.one);
-      } else {
-        await _player.setLoopMode(LoopMode.off);
-      }
+      // Fresh single-track sequence around the current track; the rest of
+      // the queue is appended in the background by _fillSequence so the
+      // notification gains working next/previous buttons.
+      _seqPlayPos = [_orderPos];
+      _concat = ConcatenatingAudioSource(children: [_taggedSource(track, url)]);
+      await _player
+          .setAudioSource(_concat!, initialIndex: 0)
+          .timeout(const Duration(seconds: 30));
+      if (gen != _loadGen) return;
+      _applyLoopMode();
       _recordRecent(track);
-      await _player.play();
+      await _player.play().timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      error = 'Timed out loading "${track.title}" — check your connection';
     } catch (e) {
       error = 'Playback failed: $e';
     } finally {
-      isLoading = false;
-      notifyListeners();
+      // Only the latest generation clears the flag: a stale call can
+      // never leave the spinner stuck on.
+      if (gen == _loadGen) {
+        isLoading = false;
+        notifyListeners();
+      }
     }
+    if (gen == _loadGen) _fillSequence(gen);
+  }
+
+  /// Appends the rest of the queue (in play order) into the background
+  /// player's sequence so hasNext/hasPrevious become true and the system
+  /// notification / lock-screen controls show prev/play/next buttons.
+  /// Fire-and-forget; fully guarded by the load generation.
+  Future<void> _fillSequence(int gen) async {
+    for (var p = 0; p < _order.length; p++) {
+      if (gen != _loadGen) return;
+      if (p == _orderPos || _seqPlayPos.contains(p)) continue;
+      final t = _queue[_order[p]];
+      String? url;
+      try {
+        url =
+            await api.resolveStreamUrl(t).timeout(const Duration(seconds: 20));
+      } catch (_) {
+        continue; // skip unresolvable tracks, keep the rest
+      }
+      if (gen != _loadGen) return;
+      if (url == null) continue;
+      final concat = _concat;
+      if (concat == null) return;
+      // Sequence position = how many already-sequenced play-positions
+      // sit before p. (Check-then-act is atomic: no await between the
+      // generation check and the insert call below.)
+      final s = _seqPlayPos.where((x) => x < p).length;
+      try {
+        await concat.insert(s, _taggedSource(t, url));
+      } catch (_) {
+        return; // sequence was replaced/detached; the new gen refills
+      }
+      if (gen != _loadGen || !identical(_concat, concat)) return;
+      _seqPlayPos.insert(s, p);
+      // just_audio shifts its currentIndex itself on insert; _orderPos is
+      // play-order based so it stays valid without adjustment.
+    }
+  }
+
+  /// Fires when the background player's sequence index changes — i.e. the
+  /// user pressed notification/lock-screen next/previous, or the player
+  /// auto-advanced (or looped). Syncs the app's position and logs stats.
+  void _onSequenceIndex(int? s) {
+    if (s == null || _seqPlayPos.isEmpty) return;
+    if (s < 0 || s >= _seqPlayPos.length) return;
+    final p = _seqPlayPos[s];
+    if (p == _orderPos) return;
+    final prev = currentTrack;
+    final secs = position.inSeconds;
+    final durSecs = duration?.inSeconds ?? 0;
+    _orderPos = p;
+    final track = currentTrack;
+    if (track != null) _recordRecent(track);
+    if (prev != null) {
+      if (durSecs > 0 && secs >= durSecs - 3) {
+        stats.logEvent(
+          trackTitle: prev.title,
+          trackArtist: prev.artist,
+          source: _statsSource(prev),
+          durationListenedS: durSecs,
+          completed: true,
+        );
+      } else if (secs >= 30) {
+        stats.logEvent(
+          trackTitle: prev.title,
+          trackArtist: prev.artist,
+          source: _statsSource(prev),
+          durationListenedS: secs,
+          completed: false,
+        );
+      }
+    }
+    notifyListeners();
   }
 
   void _onPlayerState(PlayerState state) {
     notifyListeners();
     if (state.processingState == ProcessingState.completed) {
+      // With a concatenating source this only fires at the true end of
+      // the sequence under LoopMode.off (LoopMode.all/one loop internally
+      // without surfacing completed). Per-track completion is logged by
+      // _onSequenceIndex.
       _logCompleted();
-      _suppressSkipLog = true; // the auto-advance below isn't a skip
-      if (loopMode == 2) {
-        _player.seek(Duration.zero);
-        _player.play();
-      } else {
-        next(auto: true);
-      }
+      _player.stop(); // back to idle so replay starts clean
     }
   }
 
@@ -255,22 +373,30 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> next({bool auto = false}) async {
+  Future<void> next() async {
     if (_queue.isEmpty) return;
-    _logSkip();
+    int target;
     if (_orderPos + 1 < _order.length) {
-      _orderPos++;
-      await _playCurrent();
-    } else if (loopMode == 1 || auto) {
-      // repeat-all wraps; at natural end without repeat, stop on last track.
-      if (loopMode == 1) {
-        _orderPos = 0;
-        await _playCurrent();
-      } else {
-        await _player.stop();
-      }
+      target = _orderPos + 1;
+    } else if (loopMode == 1) {
+      target = 0; // repeat-all wraps (player also loops, this is a fallback)
+    } else {
+      await _player.stop();
+      notifyListeners();
+      return;
     }
-    notifyListeners();
+    final s = _seqPlayPos.indexOf(target);
+    if (s >= 0) {
+      // Target is already in the background sequence: let the player
+      // move; _onSequenceIndex syncs _orderPos and logs stats.
+      await _player.seek(Duration.zero, index: s);
+      await _player.play();
+      return;
+    }
+    // Not sequenced yet (URL still resolving): rebuild around the target.
+    _logSkip();
+    _orderPos = target;
+    await _playCurrent();
   }
 
   Future<void> previous() async {
@@ -279,19 +405,31 @@ class PlayerController extends ChangeNotifier {
       await _player.seek(Duration.zero);
       return;
     }
-    _logSkip();
-    if (_orderPos > 0) {
-      _orderPos--;
-      await _playCurrent();
-    } else {
+    final target = _orderPos - 1;
+    if (target < 0) {
       await _player.seek(Duration.zero);
+      return;
     }
-    notifyListeners();
+    final s = _seqPlayPos.indexOf(target);
+    if (s >= 0) {
+      await _player.seek(Duration.zero, index: s);
+      await _player.play();
+      return;
+    }
+    _logSkip();
+    _orderPos = target;
+    await _playCurrent();
   }
 
   Future<void> jumpToQueueIndex(int queueIndex) async {
     final pos = _order.indexOf(queueIndex);
     if (pos < 0) return;
+    final s = _seqPlayPos.indexOf(pos);
+    if (s >= 0) {
+      await _player.seek(Duration.zero, index: s);
+      await _player.play();
+      return;
+    }
     _logSkip();
     _orderPos = pos;
     await _playCurrent();
@@ -301,13 +439,46 @@ class PlayerController extends ChangeNotifier {
 
   void toggleShuffle() {
     shuffle = !shuffle;
+    final cur = currentTrack;
+    final pos = position;
+    final wasPlaying = _player.playing;
     _rebuildOrder(reshuffle: true);
     notifyListeners();
+    // The background sequence is in old play order: rebuild it around the
+    // current track so notification next/previous follow the new order.
+    if (cur != null) {
+      _rebuildSequenceAroundCurrent(pos, wasPlaying);
+    }
+  }
+
+  /// Rebuilds the background sequence in the (possibly reshuffled) play
+  /// order, keeping the current track and its position.
+  Future<void> _rebuildSequenceAroundCurrent(
+      Duration keepPos, bool wasPlaying) async {
+    final gen = ++_loadGen;
+    final track = currentTrack;
+    if (track == null) return;
+    try {
+      final url = await api
+          .resolveStreamUrl(track)
+          .timeout(const Duration(seconds: 30));
+      if (gen != _loadGen || url == null) return;
+      _seqPlayPos = [_orderPos];
+      _concat = ConcatenatingAudioSource(children: [_taggedSource(track, url)]);
+      await _player.setAudioSource(_concat!, initialIndex: 0);
+      if (gen != _loadGen) return;
+      _applyLoopMode();
+      await _player.seek(keepPos);
+      if (wasPlaying) await _player.play();
+      _fillSequence(gen);
+    } catch (_) {
+      // Keep the old sequence on failure; playback continues.
+    }
   }
 
   void cycleLoop() {
     loopMode = (loopMode + 1) % 3;
-    _player.setLoopMode(loopMode == 2 ? LoopMode.one : LoopMode.off);
+    _applyLoopMode();
     notifyListeners();
   }
 
@@ -589,6 +760,49 @@ class PlayerController extends ChangeNotifier {
     await LocalLibrary.deleteLocal(t);
     notifyListeners();
     await _persist();
+  }
+
+  /// Replaces a local track's metadata (and/or its file path after a
+  /// rename). Used by the AI Fixer. Track is immutable so we swap it.
+  Future<void> updateLocalTrack(Track old,
+      {String? title, String? artist, String? localPath}) async {
+    final i = localTracks.indexWhere((e) => e.id == old.id);
+    if (i < 0) return;
+    final t = Track(
+      id: old.id,
+      title: (title == null || title.trim().isEmpty) ? old.title : title.trim(),
+      artist:
+          (artist == null || artist.trim().isEmpty) ? old.artist : artist.trim(),
+      license: old.license,
+      licenseUrl: old.licenseUrl,
+      artworkUrl: old.artworkUrl,
+      source: old.source,
+      streamUrl: old.streamUrl,
+      localPath: localPath ?? old.localPath,
+    );
+    localTracks[i] = t;
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Imports a whole folder (recursively) picked via the Storage Access
+  /// Framework. Returns the number of tracks added. Progress callback
+  /// receives (done, total).
+  Future<int> importLocalFolder(
+      {void Function(int done, int total)? onProgress}) async {
+    final tracks =
+        await LocalLibrary.importFolder(onProgress: onProgress);
+    var added = 0;
+    for (final t in tracks) {
+      if (localTracks.any((e) => e.id == t.id)) continue;
+      localTracks.add(t);
+      added++;
+    }
+    if (added > 0) {
+      notifyListeners();
+      await _persist();
+    }
+    return added;
   }
 
   // ---------- lyrics ----------

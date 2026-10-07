@@ -12,18 +12,92 @@ class LibraryScreen extends StatelessWidget {
 
   Future<void> _importFromPhone(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('Import from phone'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, 'files'),
+            child: const ListTile(
+              leading: Icon(Icons.audiotrack_outlined),
+              title: Text('Pick files'),
+              subtitle: Text('Choose one or more audio files'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, 'folder'),
+            child: const ListTile(
+              leading: Icon(Icons.folder_open_outlined),
+              title: Text('Pick a folder'),
+              subtitle: Text('Import a whole folder, including subfolders'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || !context.mounted) return;
     try {
-      final added = await pc.importLocalFiles();
-      messenger.showSnackBar(SnackBar(
-        content: Text(added > 0
-            ? 'Imported $added track${added == 1 ? '' : 's'} from your phone.'
-            : 'No new tracks imported.'),
-      ));
+      if (choice == 'folder') {
+        await _importFolder(context, messenger);
+      } else {
+        final added = await pc.importLocalFiles();
+        messenger.showSnackBar(SnackBar(
+          content: Text(added > 0
+              ? 'Imported $added track${added == 1 ? '' : 's'} from your phone.'
+              : 'No new tracks imported.'),
+        ));
+      }
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Import failed: $e')),
       );
     }
+  }
+
+  /// Folder import with a progress dialog showing file counts.
+  Future<void> _importFolder(
+      BuildContext context, ScaffoldMessengerState messenger) async {
+    final progress = ValueNotifier<(int, int)>((0, 0));
+    var dialogOpen = true;
+    // Non-dismissible progress dialog driven by the notifier.
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ValueListenableBuilder<(int, int)>(
+        valueListenable: progress,
+        builder: (_, v, __) => AlertDialog(
+          title: const Text('Importing folder'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(
+                value: v.$2 > 0 ? v.$1 / v.$2 : null,
+              ),
+              const SizedBox(height: 12),
+              Text(v.$2 > 0 ? '${v.$1} of ${v.$2} files' : 'Scanning…'),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => dialogOpen = false);
+    int added = 0;
+    try {
+      added = await pc.importLocalFolder(
+          onProgress: (d, t) => progress.value = (d, t));
+    } catch (e) {
+      if (dialogOpen && context.mounted) Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(content: Text('Import failed: $e')));
+      progress.dispose();
+      return;
+    }
+    progress.dispose();
+    if (dialogOpen && context.mounted) Navigator.pop(context);
+    messenger.showSnackBar(SnackBar(
+      content: Text(added > 0
+          ? 'Imported $added track${added == 1 ? '' : 's'} from the folder.'
+          : 'No new tracks imported.'),
+    ));
   }
 
   @override

@@ -156,6 +156,48 @@ packages:
       relative: false
     source: path
     version: "2.0.35"
+  flutter_secure_storage:
+    dependency: "direct main"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_secure_storage-9.2.4"
+      relative: false
+    source: path
+    version: "9.2.4"
+  flutter_secure_storage_linux:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_secure_storage_linux-1.2.3"
+      relative: false
+    source: path
+    version: "1.2.3"
+  flutter_secure_storage_macos:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_secure_storage_macos-3.1.3"
+      relative: false
+    source: path
+    version: "3.1.3"
+  flutter_secure_storage_platform_interface:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_secure_storage_platform_interface-1.1.2"
+      relative: false
+    source: path
+    version: "1.1.2"
+  flutter_secure_storage_web:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_secure_storage_web-1.2.1"
+      relative: false
+    source: path
+    version: "1.2.1"
+  flutter_secure_storage_windows:
+    dependency: "direct overridden"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/flutter_secure_storage_windows-3.1.2"
+      relative: false
+    source: path
+    version: "3.1.2"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -166,6 +208,13 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  google_fonts:
+    dependency: "direct main"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/google_fonts-6.3.3"
+      relative: false
+    source: path
+    version: "6.3.3"
   hooks:
     dependency: "direct overridden"
     description:
@@ -211,10 +260,10 @@ packages:
   js:
     dependency: "direct overridden"
     description:
-      path: "/home/hatch/workspace/opentune/.pub_pkgs/js-0.7.2"
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/js-0.6.8"
       relative: false
     source: path
-    version: "0.7.2"
+    version: "0.6.8"
   just_audio:
     dependency: "direct main"
     description:
@@ -402,6 +451,13 @@ packages:
       relative: false
     source: path
     version: "0.27.7"
+  saf:
+    dependency: "direct main"
+    description:
+      path: "/home/hatch/workspace/opentune/.pub_pkgs/saf-2.1.2"
+      relative: false
+    source: path
+    version: "2.1.2"
   shared_preferences:
     dependency: "direct main"
     description:

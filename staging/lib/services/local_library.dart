@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:saf/saf.dart';
 import '../models/track.dart';
 
 /// "Import from phone": lets the user pick audio files from device
@@ -82,6 +83,79 @@ class LocalLibrary {
         if (await f.exists()) await f.delete();
       }
     } catch (_) {}
+  }
+
+  /// Audio extensions recognized during folder import.
+  /// Public for testing.
+  static const audioExtensions = {
+    '.mp3',
+    '.m4a',
+    '.aac',
+    '.ogg',
+    '.oga',
+    '.opus',
+    '.wav',
+    '.flac',
+    '.wma',
+  };
+
+  /// Picks a whole folder via the Storage Access Framework and imports
+  /// every audio file inside it, recursing into subfolders. Files are
+  /// copied into the app's library dir (same decision as [importPicked]).
+  /// Returns the created tracks. [onProgress] receives (done, total).
+  /// Returns [] when the user cancels or the platform isn't Android.
+  static Future<List<Track>> importFolder(
+      {void Function(int done, int total)? onProgress}) async {
+    if (!Platform.isAndroid) return [];
+    final saf = Saf();
+    final dir = await saf.pickDirectory();
+    if (dir == null) return [];
+    final docs = await getApplicationDocumentsDirectory();
+    final destRoot = Directory('${docs.path}/opentune/local');
+    if (!await destRoot.exists()) {
+      await destRoot.create(recursive: true);
+    }
+    // Collect audio files recursively first, so progress has a total.
+    final entries = <SafWalkEntry>[];
+    await for (final e in saf.walk(dir.uri)) {
+      if (e.file.isDir) continue;
+      final lower = e.file.name.toLowerCase();
+      if (audioExtensions.any(lower.endsWith)) entries.add(e);
+    }
+    final out = <Track>[];
+    var done = 0;
+    for (final e in entries) {
+      try {
+        // Preserve subfolder structure (each segment sanitized) to avoid
+        // name clashes between same-named files in different folders.
+        final safeRel = e.relativePath
+            .split('/')
+            .map(_safe)
+            .where((s) => s.isNotEmpty && s != '.' && s != '..')
+            .join('/');
+        if (safeRel.isEmpty) continue;
+        final dest = File('${destRoot.path}/$safeRel');
+        await dest.parent.create(recursive: true);
+        await saf.copyToLocalFile(e.file.uri, dest.path);
+        final id = 'local:${stableId(dest.path)}';
+        final meta = _splitArtistTitle(e.file.name);
+        out.add(Track(
+          id: id,
+          title: meta[0],
+          artist: meta[1],
+          license: 'Local',
+          licenseUrl: '',
+          artworkUrl: '',
+          source: 'local',
+          localPath: dest.path,
+        ));
+      } catch (_) {
+        // Skip files that fail; keep the rest.
+      }
+      done++;
+      onProgress?.call(done, entries.length);
+    }
+    return out;
   }
 
   /// Stable id for a file path (FNV-1a hex) — deterministic across
