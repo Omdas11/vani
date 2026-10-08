@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 
 /// App version — single source of truth for the Settings version row
 /// and the log header. Bump with the release.
-const String kAppVersion = '1.6.8';
+const String kAppVersion = '1.6.10';
 
 /// In-app debug log: an in-memory ring buffer feeding the Developer
 /// options log viewer (Settings → tap Version 7× → Developer options).

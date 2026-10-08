@@ -86,21 +86,60 @@ class AppSettings extends ChangeNotifier {
   ///   a dynamic palette for the effective brightness, it wins;
   ///   otherwise the fixed accent preset (Light = proper white M3,
   ///   AMOLED = pure-black variant, Dark = Obsidian family).
+  /// - v1.6.10 guard: a light-mode resolution can never return a dark
+  ///   scheme. If the platform ever hands back a dark dynamic scheme
+  ///   for a light request (device-specific dynamic-color behavior we
+  ///   can't reproduce in tests), fall back to the preset instead of
+  ///   rendering dark, and log the incident for diagnostics.
   /// Pure logic: unit-testable.
   ColorScheme resolveColorScheme() {
     final mode = themeMode;
     final brightness = mode.effectiveBrightness(platformBrightness);
+    ColorScheme? winner;
     if (matchSystemColor) {
-      final dynamicScheme = brightness == Brightness.light
+      winner = brightness == Brightness.light
           ? dynamicLightScheme
           : dynamicDarkScheme;
-      if (dynamicScheme != null) return dynamicScheme;
     }
-    return VaniTheme.schemeForPreset(
+    winner ??= VaniTheme.schemeForPreset(
       themePreset,
       brightness: brightness,
       amoled: mode == ThemeModeOption.amoled,
     );
+    if (brightness == Brightness.light &&
+        winner.brightness != Brightness.light) {
+      DebugLog.logNow('theme',
+          'guard tripped: dynamic scheme was ${winner.brightness} for '
+          'light mode (matchSystem=$matchSystemColor); falling back '
+          'to preset ${themePreset.id}');
+      winner = VaniTheme.schemeForPreset(
+        themePreset,
+        brightness: brightness,
+        amoled: false,
+      );
+    }
+    return winner;
+  }
+
+  /// Logs the current theme resolution to the in-app debug log, so a
+  /// shared log shows exactly what the phone computed: the selected
+  /// mode, effective brightness, whether dynamic color was available
+  /// and used, and the resolved scheme brightness + surface luminance.
+  /// Called on every theme-affecting change (mode, system-color
+  /// toggle, platform brightness flip, dynamic palette refresh, and
+  /// settings load). No-op unless the user enabled log capture.
+  void _logThemeState(String trigger) {
+    final mode = themeMode;
+    final brightness = mode.effectiveBrightness(platformBrightness);
+    final resolved = resolveColorScheme();
+    DebugLog.logNow('theme',
+        '$trigger: mode=${mode.id} effective=$brightness '
+        'matchSystem=$matchSystemColor '
+        'dynamicSupported=$dynamicColorSupported '
+        'dynLight=${dynamicLightScheme != null} '
+        'dynDark=${dynamicDarkScheme != null} '
+        'resolved=${resolved.brightness} '
+        'surfaceLum=${resolved.surface.computeLuminance().toStringAsFixed(3)}');
   }
 
   Future<void> load() async {
@@ -125,6 +164,7 @@ class AppSettings extends ChangeNotifier {
     DebugLog.captureEnabled = logCapture;
     _loaded = true;
     notifyListeners();
+    _logThemeState('load');
   }
 
   /// Drops unknown ids and re-adds any missing known ids at the end, so
@@ -186,6 +226,7 @@ class AppSettings extends ChangeNotifier {
   Future<void> setThemeMode(ThemeModeOption mode) async {
     themeModeId = mode.id;
     notifyListeners();
+    _logThemeState('setThemeMode');
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kThemeMode, mode.id);
   }
@@ -196,11 +237,13 @@ class AppSettings extends ChangeNotifier {
     if (platformBrightness == b) return;
     platformBrightness = b;
     notifyListeners();
+    _logThemeState('platformBrightness');
   }
 
   Future<void> setMatchSystemColor(bool v) async {
     matchSystemColor = v;
     notifyListeners();
+    _logThemeState('setMatchSystemColor');
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kMatchSystem, v);
   }
@@ -247,6 +290,7 @@ class AppSettings extends ChangeNotifier {
     dynamicColorSupported =
         dynamicDarkScheme != null || dynamicLightScheme != null;
     notifyListeners();
+    _logThemeState('refreshDynamicColor');
   }
 }
 
