@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'screens/home_screen.dart';
 import 'screens/library_screen.dart';
@@ -8,6 +7,7 @@ import 'screens/settings_screen.dart';
 import 'screens/stats_screen.dart';
 import 'services/app_settings.dart';
 import 'services/player_controller.dart';
+import 'services/vani_theme.dart';
 import 'widgets/app_background.dart';
 import 'widgets/glass_panel.dart';
 import 'widgets/mini_player.dart';
@@ -33,7 +33,7 @@ Future<void> main() async {
     androidNotificationOngoing: true,
     androidStopForegroundOnPause: false,
     androidNotificationIcon: 'mipmap/ic_launcher',
-    notificationColor: const Color(0xFF1DB954),
+    notificationColor: const Color(0xFF00E59B),
   );
   final pc = PlayerController();
   await pc.init();
@@ -53,67 +53,58 @@ class PlayerScope extends InheritedNotifier<PlayerController> {
       .notifier!;
 }
 
-/// Obsidian Sonic typography: Space Grotesk for display/titles, Inter
-/// for body. google_fonts fetches the files on first use (zero APK size
-/// impact); offline it falls back to the platform fonts.
-TextTheme _vaniTextTheme() {
-  final base = ThemeData.dark().textTheme;
-  final display = GoogleFonts.spaceGroteskTextTheme(base);
-  final body = GoogleFonts.interTextTheme(base);
-  return body.copyWith(
-    displayLarge: display.displayLarge,
-    displayMedium: display.displayMedium,
-    displaySmall: display.displaySmall,
-    headlineLarge: display.headlineLarge,
-    headlineMedium: display.headlineMedium,
-    headlineSmall: display.headlineSmall,
-    titleLarge: display.titleLarge,
-    titleMedium: display.titleMedium,
-    titleSmall: display.titleSmall,
-  );
-}
-
-class VaniApp extends StatelessWidget {
+class VaniApp extends StatefulWidget {
   final PlayerController pc;
   const VaniApp({super.key, required this.pc});
 
   @override
+  State<VaniApp> createState() => _VaniAppState();
+}
+
+class _VaniAppState extends State<VaniApp> {
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // Resolve the wallpaper-derived palette once at startup
+    // (fire-and-forget: never blocks the first frame)…
+    widget.pc.settings.refreshDynamicColor();
+    // …and re-resolve on every resume, so a wallpaper change made while
+    // the app was away re-themes the app.
+    _lifecycle = AppLifecycleListener(
+      onResume: () => widget.pc.settings.refreshDynamicColor(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return PlayerScope(
-      pc: pc,
-      child: MaterialApp(
-        title: 'Vani',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: Colors.transparent,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
+    // Rebuild the whole MaterialApp whenever theme settings change:
+    // preset, match-system toggle, corner radius, or a fresh dynamic
+    // palette from the platform.
+    return AnimatedBuilder(
+      animation: widget.pc.settings,
+      builder: (_, __) {
+        final settings = widget.pc.settings;
+        return PlayerScope(
+          pc: widget.pc,
+          child: MaterialApp(
+            title: 'Vani',
+            debugShowCheckedModeBanner: false,
+            theme: VaniTheme.buildTheme(
+              scheme: settings.resolveColorScheme(),
+              cornerRadius: settings.cornerRadius,
+            ),
+            home: MainShell(pc: widget.pc),
           ),
-          textTheme: _vaniTextTheme(),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF1DB954),
-            secondary: Color(0xFF1DB954),
-          ),
-          bottomNavigationBarTheme:
-              const BottomNavigationBarThemeData(
-            backgroundColor: Color(0xFF1A1A1A),
-            selectedItemColor: Colors.white,
-            unselectedItemColor: Colors.grey,
-          ),
-          chipTheme: ChipThemeData.fromDefaults(
-            primaryColor: const Color(0xFF1DB954),
-            secondaryColor: Colors.grey[800]!,
-            labelStyle: const TextStyle(),
-          ),
-          sliderTheme: const SliderThemeData(
-            activeTrackColor: Color(0xFF1DB954),
-            inactiveTrackColor: Color(0xFF3A3A3A),
-            thumbColor: Colors.white,
-          ),
-        ),
-        home: MainShell(pc: pc),
-      ),
+        );
+      },
     );
   }
 }
@@ -159,7 +150,7 @@ class _MainShellState extends State<MainShell> {
         final tabIndex = order.indexOf(_tabId);
         return Scaffold(
           // Animated gradient + veena watermark behind everything
-          // (toggle in Settings → Appearance).
+          // (toggle in Settings → Look & Feel).
           body: Stack(
             children: [
               Positioned.fill(
@@ -181,7 +172,7 @@ class _MainShellState extends State<MainShell> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Floating mini-player card (Namida pattern).
+                      // Floating mini-player card (PixelPlayer pattern).
                       AnimatedBuilder(
                         animation: widget.pc,
                         builder: (_, __) => Padding(
@@ -217,7 +208,7 @@ class _MainShellState extends State<MainShell> {
 /// Detached tonal pill navigation dock in Material 3 Expressive styling,
 /// wrapped in real glass. The visible destinations and their order come
 /// from Settings → Navigation (item 6); M3 pill indicator on the active
-/// destination, labels on the active item only (Retro Music's pattern).
+/// destination, labels on the active item only.
 class _FloatingDock extends StatelessWidget {
   final List<NavDestination> destinations;
   final String currentId;
@@ -230,7 +221,6 @@ class _FloatingDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final index =
         destinations.indexWhere((d) => d.id == currentId).clamp(0, 4);
     return GlassPanel(
@@ -243,7 +233,6 @@ class _FloatingDock extends StatelessWidget {
         height: 70,
         labelBehavior:
             NavigationDestinationLabelBehavior.onlyShowSelected,
-        indicatorColor: scheme.secondaryContainer,
         selectedIndex: index,
         onDestinationSelected: (i) => onSelect(destinations[i].id),
         destinations: [

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'vani_theme.dart';
 
 /// App-wide user settings, persisted in SharedPreferences.
 ///
@@ -10,19 +11,56 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///   behind every screen. Default true; turn off to save battery.
 /// - [dockOrder]: navigation destinations shown in the floating dock, in
 ///   order. Any subset of [NavDestination.ids], in any order.
+/// - [themePresetId]: fixed accent preset (see [ThemePreset]); default
+///   Neon Mint (the legacy Obsidian Sonic look).
+/// - [matchSystemColor]: follow the wallpaper-derived Material You
+///   palette on Android 12+. Default true; falls back to the preset when
+///   the platform has no dynamic color.
+/// - [cornerRadius]: user-adjustable card/button radius (8..32 dp),
+///   exposed to widgets via the [VaniRadii] theme extension.
 class AppSettings extends ChangeNotifier {
   static const _kIaEnabled = 'set_ia_enabled';
   static const _kAutoLyrics = 'set_auto_lyrics';
   static const _kAnimBg = 'set_animated_bg';
   static const _kDockOrder = 'set_dock_order';
+  static const _kThemePreset = 'set_theme_preset';
+  static const _kMatchSystem = 'set_match_system_color';
+  static const _kCornerRadius = 'set_corner_radius';
 
   bool iaEnabled = true;
   bool autoLoadLyrics = true;
   bool animatedBackground = true;
   List<String> dockOrder = List.of(NavDestination.defaultOrder);
+
+  String themePresetId = ThemePreset.neonMint.id;
+  bool matchSystemColor = true;
+  double cornerRadius = 24;
+
+  /// Last wallpaper-derived dark scheme from the platform, or null when
+  /// the platform has no dynamic color (pre-Android 12) / hasn't
+  /// responded yet.
+  ColorScheme? dynamicDarkScheme;
+
+  /// True once the platform has actually supplied a dynamic palette.
+  /// Drives the "Match system theme color" toggle's availability: on
+  /// older Android the toggle shows as unavailable.
+  bool dynamicColorSupported = false;
+
   bool _loaded = false;
 
   bool get loaded => _loaded;
+
+  ThemePreset get themePreset => ThemePreset.byId(themePresetId);
+
+  /// The effective scheme for the whole app: wallpaper-derived when the
+  /// user opted in and the platform supports it, otherwise the fixed
+  /// preset (Obsidian Sonic family). Pure logic: unit-testable.
+  ColorScheme resolveColorScheme() {
+    if (matchSystemColor && dynamicDarkScheme != null) {
+      return dynamicDarkScheme!;
+    }
+    return VaniTheme.schemeForPreset(themePreset);
+  }
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -30,6 +68,13 @@ class AppSettings extends ChangeNotifier {
     autoLoadLyrics = prefs.getBool(_kAutoLyrics) ?? true;
     animatedBackground = prefs.getBool(_kAnimBg) ?? true;
     dockOrder = sanitizeDockOrder(prefs.getStringList(_kDockOrder));
+    themePresetId =
+        prefs.getString(_kThemePreset) ?? ThemePreset.neonMint.id;
+    // Unknown ids (e.g. from a newer preset list) fall back cleanly.
+    themePresetId = ThemePreset.byId(themePresetId).id;
+    matchSystemColor = prefs.getBool(_kMatchSystem) ?? true;
+    cornerRadius =
+        (prefs.getDouble(_kCornerRadius) ?? 24).clamp(8.0, 32.0);
     _loaded = true;
     notifyListeners();
   }
@@ -81,6 +126,40 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_kDockOrder, clean);
+  }
+
+  Future<void> setThemePreset(ThemePreset preset) async {
+    themePresetId = preset.id;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kThemePreset, preset.id);
+  }
+
+  Future<void> setMatchSystemColor(bool v) async {
+    matchSystemColor = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kMatchSystem, v);
+  }
+
+  Future<void> setCornerRadius(double v) async {
+    cornerRadius = v.clamp(8.0, 32.0);
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kCornerRadius, cornerRadius);
+  }
+
+  /// (Re-)resolves the wallpaper-derived dynamic palette from the
+  /// platform. Safe to call any time: on pre-Android 12 (or any
+  /// failure) it clears the dynamic scheme and marks dynamic color
+  /// unsupported, so the app falls back to the fixed preset.
+  /// Called once at startup and again on every app resume, so a
+  /// wallpaper change re-themes the app.
+  Future<void> refreshDynamicColor() async {
+    final scheme = await resolveDynamicDarkScheme();
+    dynamicDarkScheme = scheme;
+    dynamicColorSupported = scheme != null;
+    notifyListeners();
   }
 }
 

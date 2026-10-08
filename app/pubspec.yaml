@@ -1,7 +1,7 @@
 name: opentune
 description: OpenTune — a Spotify-style music player for open-licensed music.
 publish_to: 'none'
-version: 1.5.1+8
+version: 1.6.0+9
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -19,6 +19,8 @@ dependencies:
   google_fonts: ^6.0.0
   flutter_secure_storage: ^9.0.0
   saf: ^2.0.0
+  dynamic_color: ^2.1.0
+  material_color_utilities: ^0.13.0
 
 dev_dependencies:
   flutter_test:

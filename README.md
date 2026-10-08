@@ -15,11 +15,11 @@ A Spotify-style music player for **open-licensed music** — real Android app
 
 Get the APK for your phone from
 **[GitHub Releases](https://github.com/Omdas11/vani/releases)**
-(all versions: pick the latest — `Vani-v1.5.0-arm64.apk` fits most
+(all versions: pick the latest — `Vani-v1.6.0-arm64.apk` fits most
 modern phones). Sideload it: allow "Install unknown apps" for your
 browser/file manager when asked, then open the APK to install.
 Tip: check the file name before installing — every release uses
-clear versioned names (e.g. `Vani-v1.5.0-arm64.apk`) so an old
+clear versioned names (e.g. `Vani-v1.6.0-arm64.apk`) so an old
 download can't be mistaken for the new one.
 
 No logins, no ads, no tracking SDKs. Music comes from the
@@ -64,11 +64,17 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
 - **Settings** (gear icon on Home) — toggle **Internet Archive
   collections** on/off (off = Drive + phone music only; Archive search
   is skipped), toggle **auto-load lyrics**, see stats-backend status.
+- **Look & Feel** — Settings → Look & Feel: **Material You dynamic
+  color** (follows your wallpaper on Android 12+, re-themes on resume),
+  4 accent presets (Neon Mint, Plum Wave, Periwinkle, Amber Dusk), and a
+  user-adjustable **corner radius** for cards/sheets/dialogs. The
+  mini-player re-tints itself from the current album art.
 - **Now Playing** — full-screen sheet: oversized vinyl record artwork
   shifted off the left edge, spinning while music plays; ambient glow
   behind the vinyl tinted by the cover art's colors; frosted-glass
   control panels; holographic shimmer sweep; title/artist, like button,
-  play/pause, draggable seek bar, next/previous, shuffle, repeat
+  play/pause, wavy seek bar (animated sine-wave progress that flattens
+  while you drag), next/previous, shuffle, repeat
   (off → all → one), up-next queue (tap to jump), download-for-offline
   button with progress, license/attribution line, **lyrics button** and
   a tappable **lyrics preview** under the track info.

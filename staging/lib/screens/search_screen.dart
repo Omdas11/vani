@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
+import '../widgets/expressive.dart';
 import '../widgets/track_tile.dart';
 
 /// Search the Internet Archive's CC0/CC-BY audio catalog, with
-/// debounced live results as the user types.
+/// debounced live results as the user types. M3 Expressive restyle:
+/// display header + a real M3 SearchBar pill.
 class SearchScreen extends StatefulWidget {
   final PlayerController pc;
   const SearchScreen({super.key, required this.pc});
@@ -66,54 +68,71 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Search')),
       body: Column(
         children: [
+          const DisplayHeader(
+            title: 'Search',
+            subtitle: 'Open-licensed music, artists and moods',
+          ),
           Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: SearchBar(
               controller: _ctrl,
-              textInputAction: TextInputAction.search,
-              onChanged: _onChanged,
+              hintText: 'Artists, tracks, moods…',
+              leading: const Icon(Icons.search),
+              trailing: [
+                if (_ctrl.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _debounce?.cancel();
+                      _ctrl.clear();
+                      setState(() {
+                        _searched = false;
+                        _results = null;
+                      });
+                    },
+                  ),
+              ],
+              onChanged: (text) {
+                setState(() {}); // refresh the clear button
+                _onChanged(text);
+              },
               onSubmitted: (q) {
                 _debounce?.cancel();
                 _runQuery(q.trim());
                 FocusScope.of(context).unfocus();
               },
-              decoration: InputDecoration(
-                hintText: 'Artists, tracks, moods…',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _debounce?.cancel();
-                    _ctrl.clear();
-                    setState(() {
-                      _searched = false;
-                      _results = null;
-                    });
-                  },
-                ),
-                filled: true,
-                fillColor: Colors.grey[900],
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-              ),
             ),
           ),
           Expanded(
             child: !_searched
                 ? Center(
-                    child: Text(
-                      widget.pc.settings.iaEnabled
-                          ? 'Search 60,000+ open-licensed tracks\nfrom the Internet Archive.'
-                          : 'Internet Archive search is off.\nSearching your Drive songs and phone imports.',
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(color: Colors.grey[400], fontSize: 14),
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.search,
+                              size: 56,
+                              color: scheme.onSurfaceVariant
+                                  .withValues(alpha: 0.6)),
+                          const SizedBox(height: 12),
+                          Text(
+                            widget.pc.settings.iaEnabled
+                                ? 'Search 60,000+ open-licensed tracks\nfrom the Internet Archive.'
+                                : 'Internet Archive search is off.\nSearching your Drive songs and phone imports.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 14,
+                                height: 1.5),
+                          ),
+                        ],
+                      ),
                     ),
                   )
                 : FutureBuilder<List<Track>>(
@@ -134,13 +153,16 @@ class _SearchScreenState extends State<SearchScreen> {
                                   ? 'Not found on Internet Archive — add it via My Drive.'
                                   : 'No matches in your music.',
                               textAlign: TextAlign.center,
-                              style:
-                                  TextStyle(color: Colors.grey[400]),
+                              style: TextStyle(
+                                  color:
+                                      scheme.onSurfaceVariant),
                             ),
                           ),
                         );
                       }
                       return ListView.builder(
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 8),
                         itemCount: tracks.length,
                         itemBuilder: (_, i) => TrackTile(
                           track: tracks[i],

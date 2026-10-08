@@ -161,6 +161,7 @@ class _AiProviderCardState extends State<AiProviderCard> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -169,8 +170,8 @@ class _AiProviderCardState extends State<AiProviderCard> {
           children: [
             Row(
               children: [
-                const Icon(Icons.auto_fix_high_outlined,
-                    color: Color(0xFF1DB954)),
+                Icon(Icons.auto_fix_high_outlined,
+                    color: scheme.primary),
                 const SizedBox(width: 8),
                 const Text('AI provider',
                     style:
@@ -180,7 +181,7 @@ class _AiProviderCardState extends State<AiProviderCard> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.amber[900],
+                    color: scheme.tertiaryContainer,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text('BETA',
@@ -194,7 +195,7 @@ class _AiProviderCardState extends State<AiProviderCard> {
               'The AI Fixer calls the provider directly from your phone. '
               'Each provider keeps its own key, stored securely on this '
               'device and never shown.',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12.5),
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<AiProvider>(
@@ -209,7 +210,7 @@ class _AiProviderCardState extends State<AiProviderCard> {
             const SizedBox(height: 8),
             Text(
               _provider.keyHint,
-              style: TextStyle(color: Colors.grey[400], fontSize: 12.5),
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -276,7 +277,7 @@ class _AiProviderCardState extends State<AiProviderCard> {
                       ? '✓ Key saved for ${_provider.name}.'
                       : 'No key saved for ${_provider.name}.',
                   style: TextStyle(
-                    color: _hasKey ? Colors.green : Colors.grey[400],
+                    color: _hasKey ? scheme.primary : scheme.onSurfaceVariant,
                     fontSize: 12.5,
                   ),
                 ),
@@ -286,7 +287,7 @@ class _AiProviderCardState extends State<AiProviderCard> {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(_status!,
-                    style: TextStyle(color: Colors.grey[300], fontSize: 12.5)),
+                    style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5)),
               ),
             if (_testResult != null)
               Padding(
@@ -294,8 +295,8 @@ class _AiProviderCardState extends State<AiProviderCard> {
                 child: Text(_testResult!,
                     style: TextStyle(
                       color: _testResult!.startsWith('✓')
-                          ? Colors.green
-                          : Colors.amber[200],
+                          ? scheme.primary
+                          : scheme.tertiary,
                       fontSize: 12.5,
                     )),
               ),

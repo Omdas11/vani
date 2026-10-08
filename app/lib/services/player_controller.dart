@@ -201,6 +201,10 @@ class PlayerController extends ChangeNotifier {
   Track? get currentTrack =>
       _queue.isEmpty || _order.isEmpty ? null : _queue[_order[_orderPos]];
 
+  /// Play-order position of the current track. Public for the queue
+  /// sheet's reorder/remove index math.
+  int get currentPlayPos => _orderPos;
+
   List<Track> get queue => List.unmodifiable(_queue);
 
   /// Tracks coming up after the current one, in play order.
@@ -530,6 +534,62 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> seek(Duration d) => _player.seek(d);
+
+  /// Inserts [track] into the queue: immediately after the current track
+  /// ([playNext]) or at the very end ("add to queue"). The background
+  /// sequence is rebuilt around the current track so notification
+  /// next/previous stay in sync. With an empty queue this just plays
+  /// the track.
+  Future<void> insertIntoQueue(Track track,
+      {required bool playNext}) async {
+    if (_queue.isEmpty) {
+      await playTrack(track);
+      return;
+    }
+    final pos = position;
+    final wasPlaying = _player.playing;
+    _queue.add(track);
+    final qi = _queue.length - 1;
+    final at = playNext ? _orderPos + 1 : _order.length;
+    _order.insert(at.clamp(0, _order.length), qi);
+    notifyListeners();
+    await _rebuildSequenceAroundCurrent(pos, wasPlaying);
+  }
+
+  /// Moves an up-next item within the queue ([fromPos]/[toPos] are play
+  /// positions, both after the current track). Backs the queue sheet's
+  /// drag-to-reorder; [toPos] follows the [ReorderableListView]
+  /// `onReorderItem` convention (already adjusted for the removal).
+  Future<void> moveUpNextItem(int fromPos, int toPos) async {
+    if (fromPos == toPos) return;
+    if (fromPos <= _orderPos || toPos <= _orderPos) return;
+    if (fromPos >= _order.length || toPos > _order.length) return;
+    final pos = position;
+    final wasPlaying = _player.playing;
+    final qi = _order.removeAt(fromPos);
+    _order.insert(toPos.clamp(0, _order.length), qi);
+    notifyListeners();
+    await _rebuildSequenceAroundCurrent(pos, wasPlaying);
+  }
+
+  /// Removes an up-next item ([playPos] is a play position after the
+  /// current track). The track is also pruned from [_queue] when no
+  /// other play position references it.
+  Future<void> removeUpNextItem(int playPos) async {
+    if (_order.isEmpty) return;
+    if (playPos <= _orderPos || playPos >= _order.length) return;
+    final pos = position;
+    final wasPlaying = _player.playing;
+    final qi = _order.removeAt(playPos);
+    if (!_order.contains(qi)) {
+      _queue.removeAt(qi);
+      for (var i = 0; i < _order.length; i++) {
+        if (_order[i] > qi) _order[i]--;
+      }
+    }
+    notifyListeners();
+    await _rebuildSequenceAroundCurrent(pos, wasPlaying);
+  }
 
   void toggleShuffle() {
     shuffle = !shuffle;

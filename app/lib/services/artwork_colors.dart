@@ -14,7 +14,7 @@ class ArtworkColors {
   ArtworkColors._();
   static final Map<String, Color> _cache = {};
 
-  static const Color fallback = Color(0xFF1DB954);
+  static const Color fallback = Color(0xFF00E59B);
 
   static Future<Color> dominant(String artworkUrl,
       {Color fallback = fallback}) async {

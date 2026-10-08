@@ -4,6 +4,7 @@ import '../services/stats_service.dart';
 
 /// "Your Stats": listening time, top tracks/artists, per-source split.
 /// Aggregated client-side from the device's Supabase listening events.
+/// M3 Expressive restyle: large pill segmented control, tonal stat cards.
 class StatsScreen extends StatefulWidget {
   final PlayerController pc;
   const StatsScreen({super.key, required this.pc});
@@ -44,6 +45,8 @@ class _StatsScreenState extends State<StatsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Your Stats')),
       body: FutureBuilder<_Loaded>(
@@ -53,13 +56,23 @@ class _StatsScreenState extends State<StatsScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (!widget.pc.stats.ready) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text(
-                  'Stats backend is not connected.\nListening stats will appear here once the connection is up.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_off_outlined,
+                        size: 56,
+                        color: scheme.onSurfaceVariant),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Stats backend is not connected.\nListening stats will appear here once the connection is up.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.grey, height: 1.5),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -70,15 +83,29 @@ class _StatsScreenState extends State<StatsScreen> {
                 child: Text('Could not load stats.',
                     style: TextStyle(color: Colors.grey)));
           }
-          final s = [_loadedWeek(loaded), _loadedMonth(loaded), loaded.all][_range];
+          final s = [
+            _loadedWeek(loaded),
+            _loadedMonth(loaded),
+            loaded.all
+          ][_range];
           if (s.playCount == 0) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text(
-                  'No listening stats yet.\nPlay something for 30+ seconds and it will show up here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.bar_chart_outlined,
+                        size: 56,
+                        color: scheme.onSurfaceVariant),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'No listening stats yet.\nPlay something for 30+ seconds and it will show up here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.grey, height: 1.5),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -89,80 +116,140 @@ class _StatsScreenState extends State<StatsScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
+                // Expressive large-pill segmented control.
                 SegmentedButton<int>(
                   segments: const [
-                    ButtonSegment(value: 0, label: Text('7 days')),
-                    ButtonSegment(value: 1, label: Text('30 days')),
-                    ButtonSegment(value: 2, label: Text('All time')),
+                    ButtonSegment(
+                        value: 0,
+                        label: Text('7 days'),
+                        icon: Icon(Icons.calendar_view_week_outlined,
+                            size: 16)),
+                    ButtonSegment(
+                        value: 1,
+                        label: Text('30 days'),
+                        icon: Icon(Icons.calendar_month_outlined,
+                            size: 16)),
+                    ButtonSegment(
+                        value: 2,
+                        label: Text('All time'),
+                        icon:
+                            Icon(Icons.all_inclusive, size: 16)),
                   ],
                   selected: {_range},
+                  showSelectedIcon: false,
                   onSelectionChanged: (v) =>
                       setState(() => _range = v.first),
+                  style: SegmentedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
-                        child: _statCard('Listening time',
-                            _fmtDur(s.totalSeconds), Icons.timer)),
+                        child: _statCard(
+                            context,
+                            'Listening time',
+                            _fmtDur(s.totalSeconds),
+                            Icons.timer_outlined)),
                     const SizedBox(width: 12),
                     Expanded(
-                        child: _statCard('Plays',
+                        child: _statCard(context, 'Plays',
                             '${s.playCount}', Icons.play_arrow)),
                   ],
                 ),
                 const SizedBox(height: 20),
-                const Text('Top tracks',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('Top tracks',
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(
+                            fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
-                ...s.topTracks.asMap().entries.map((e) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.grey[850],
-                        child: Text('${e.key + 1}',
+                ...s.topTracks.asMap().entries.map((e) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor:
+                              scheme.primaryContainer,
+                          child: Text('${e.key + 1}',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: scheme
+                                      .onPrimaryContainer)),
+                        ),
+                        title: Text(e.value.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                fontWeight: FontWeight.bold)),
+                                fontWeight: FontWeight.w600)),
+                        subtitle: Text(e.value.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: scheme.secondaryContainer,
+                            borderRadius:
+                                BorderRadius.circular(999),
+                          ),
+                          child: Text(_fmtDur(e.value.seconds),
+                              style: TextStyle(
+                                  color: scheme
+                                      .onSecondaryContainer,
+                                  fontWeight:
+                                      FontWeight.w600,
+                                  fontSize: 12)),
+                        ),
                       ),
-                      title: Text(e.value.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                      subtitle: Text(e.value.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                      trailing: Text(_fmtDur(e.value.seconds),
-                          style: TextStyle(color: Colors.grey[400])),
                     )),
                 const SizedBox(height: 12),
-                const Text('Top artists',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('Top artists',
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(
+                            fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
-                ...s.topArtists.asMap().entries.map((e) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.grey[850],
-                        child: Text('${e.key + 1}',
+                ...s.topArtists.asMap().entries.map((e) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor:
+                              scheme.tertiaryContainer,
+                          child: Text('${e.key + 1}',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: scheme
+                                      .onTertiaryContainer)),
+                        ),
+                        title: Text(e.value.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                fontWeight: FontWeight.bold)),
+                                fontWeight: FontWeight.w600)),
+                        trailing: Text(_fmtDur(e.value.seconds),
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant)),
                       ),
-                      title: Text(e.value.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                      trailing: Text(_fmtDur(e.value.seconds),
-                          style: TextStyle(color: Colors.grey[400])),
                     )),
                 const SizedBox(height: 12),
-                const Text('By source',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('By source',
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(
+                            fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
+                  runSpacing: 8,
                   children: s.playsBySource.entries
                       .map((e) => Chip(
+                            avatar: Icon(
+                                _sourceIcon(e.key),
+                                size: 16),
                             label: Text(
-                                '${_sourceLabel(e.key)}: ${e.value}'),
+                                '${_sourceLabel(e.key)} · ${e.value}',
+                                style: const TextStyle(
+                                    fontWeight:
+                                        FontWeight.w600)),
                           ))
                       .toList(),
                 ),
@@ -184,23 +271,42 @@ class _StatsScreenState extends State<StatsScreen> {
         _ => s,
       };
 
-  Widget _statCard(String label, String value, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: const Color(0xFF1DB954)),
-          const SizedBox(height: 8),
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 22, fontWeight: FontWeight.bold)),
-          Text(label, style: TextStyle(color: Colors.grey[400])),
-        ],
+  IconData _sourceIcon(String s) => switch (s) {
+        'archive' => Icons.public_outlined,
+        'drive' => Icons.cloud_outlined,
+        'local' => Icons.smartphone_outlined,
+        _ => Icons.music_note,
+      };
+
+  Widget _statCard(
+      BuildContext context, String label, String value, IconData icon) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              padding: const EdgeInsets.all(10),
+              child: Icon(icon,
+                  color: scheme.onPrimaryContainer,
+                  size: 22),
+            ),
+            const SizedBox(height: 12),
+            Text(value,
+                style: theme.textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            Text(label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant)),
+          ],
+        ),
       ),
     );
   }

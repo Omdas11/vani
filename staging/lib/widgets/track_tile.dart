@@ -1,87 +1,17 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
+import '../services/vani_theme.dart';
+import 'expressive.dart';
+import 'track_art.dart';
 
-/// Shared artwork image with a music-note fallback.
-/// Supports remote URLs (Image.network) and on-device file paths
-/// (Image.file, e.g. cover art downloaded by AI Fixer).
-class TrackArt extends StatelessWidget {
-  final Track track;
-  final double size;
-  final double radius;
-  const TrackArt(this.track,
-      {super.key, this.size = 56, this.radius = 6});
-
-  @override
-  Widget build(BuildContext context) {
-    if (track.artworkUrl.isEmpty) return _fallback();
-    final url = track.artworkUrl;
-    final Widget image = url.startsWith('/')
-        ? Image.file(
-            File(url),
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _fallback(),
-          )
-        : Image.network(
-            url,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _fallback(),
-          );
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: image,
-      ),
-    );
-  }
-
-  Widget _fallback() {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Colors.grey[850],
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: const Icon(Icons.music_note, color: Colors.white54),
-    );
-  }
-}
-
-/// License badge shown on cards and in the player (CC-BY needs attribution).
-class LicenseBadge extends StatelessWidget {
-  final Track track;
-  const LicenseBadge(this.track, {super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final Color bg;
-    if (track.license == 'CC0') {
-      bg = Colors.green[900]!;
-    } else if (track.isDriveTrack) {
-      bg = Colors.blue[900]!;
-    } else {
-      bg = Colors.amber[900]!;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        track.license,
-        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-}
-
-/// A tappable track row with an overflow menu (like / playlist / download).
+/// A tappable track row as an individual expressive card (PixelPlayer
+/// Library pattern): rounded container, 56dp squircle artwork, two
+/// metadata lines, and a circular tonal overflow button — no dividers.
+///
+/// The overflow button opens the rich track action sheet
+/// ([showTrackActions]): Play Next / Add to queue / Like / Add to
+/// playlist / Download.
 class TrackTile extends StatelessWidget {
   final Track track;
   final List<Track> contextQueue;
@@ -107,180 +37,101 @@ class TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final radius = VaniTheme.radiiOf(context);
     final isCurrent = pc.currentTrack == track;
-    return ListTile(
-      leading: TrackArt(track),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-          color: isCurrent ? const Color(0xFF1DB954) : null,
-        ),
-      ),
-      subtitle: Text(
-        '${track.artist} · ${track.license}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (track.isBetaFormat)
-            Tooltip(
-              message:
-                  '${track.audioFormat} playback is in early testing — '
-                  'tell us if seeking or playback misbehaves.',
-              child: Container(
-                margin: const EdgeInsets.only(right: 4),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1DB954).withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color:
-                        const Color(0xFF1DB954).withValues(alpha: 0.5),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      child: Card(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(radius),
+          onTap:
+              onTapOverride ?? () => pc.playTracks(contextQueue, indexInQueue),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                TrackArt(track, size: 56, radius: 16),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: isCurrent
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                          color: isCurrent ? scheme.primary : null,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${track.artist} · ${track.license}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: Text(
-                  '${track.audioFormat} β',
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1DB954),
+                if (track.isBetaFormat)
+                  Tooltip(
+                    message:
+                        '${track.audioFormat} playback is in early testing — '
+                        'tell us if seeking or playback misbehaves.',
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${track.audioFormat} β',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
                   ),
+                if (showOfflineBadge && track.isDownloaded)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.download_done,
+                        size: 18, color: scheme.onSurfaceVariant),
+                  ),
+                if (onEdit != null)
+                  TonalIconButton(
+                    icon: Icons.edit_outlined,
+                    iconSize: 18,
+                    size: 40,
+                    tooltip: 'Rename',
+                    onPressed: () => onEdit!(track),
+                  ),
+                TonalIconButton(
+                  icon: Icons.more_vert,
+                  iconSize: 20,
+                  size: 40,
+                  tooltip: 'Track options',
+                  onPressed: () => showTrackActions(context, pc, track),
                 ),
-              ),
+              ],
             ),
-          if (showOfflineBadge && track.isDownloaded)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.download_done,
-                  size: 18, color: Colors.white54),
-            ),
-          if (onEdit != null)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, size: 20),
-              onPressed: () => onEdit!(track),
-            ),
-          _menu(context),
-        ],
-      ),
-      onTap: onTapOverride ?? () => pc.playTracks(contextQueue, indexInQueue),
-    );
-  }
-
-  Widget _menu(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, size: 20),
-      onSelected: (v) => _onMenu(context, v),
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          value: 'like',
-          child: Text(pc.isLiked(track) ? 'Unlike' : 'Like'),
-        ),
-        const PopupMenuItem(
-          value: 'playlist',
-          child: Text('Add to playlist'),
-        ),
-        if (!track.isDownloaded)
-          PopupMenuItem(
-            value: 'download',
-            enabled: !pc.isDownloading(track),
-            child: Text(
-                pc.isDownloading(track) ? 'Downloading…' : 'Download'),
-          )
-        else
-          const PopupMenuItem(
-            value: 'undownload',
-            child: Text('Remove download'),
           ),
-      ],
-    );
-  }
-
-  Future<void> _onMenu(BuildContext context, String v) async {
-    switch (v) {
-      case 'like':
-        await pc.toggleLike(track);
-        break;
-      case 'playlist':
-        _showAddToPlaylist(context);
-        break;
-      case 'download':
-        await pc.downloadTrack(track);
-        if (context.mounted && pc.error != null) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(pc.error!)));
-        }
-        break;
-      case 'undownload':
-        await pc.deleteDownload(track);
-        break;
-    }
-  }
-
-  void _showAddToPlaylist(BuildContext context) {
-    final names = pc.playlists.keys.toList();
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('New playlist'),
-              onTap: () {
-                Navigator.pop(context);
-                _showNewPlaylistDialog(context);
-              },
-            ),
-            ...names.map(
-              (n) => ListTile(
-                leading: const Icon(Icons.playlist_add),
-                title: Text(n),
-                onTap: () async {
-                  await pc.addToPlaylist(n, track);
-                  if (context.mounted) Navigator.pop(context);
-                },
-              ),
-            ),
-          ],
         ),
-      ),
-    );
-  }
-
-  void _showNewPlaylistDialog(BuildContext context) {
-    final ctrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('New playlist'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Playlist name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await pc.createPlaylist(ctrl.text);
-              if (ctrl.text.trim().isNotEmpty) {
-                await pc.addToPlaylist(ctrl.text.trim(), track);
-              }
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text('Create'),
-          ),
-        ],
       ),
     );
   }

@@ -335,6 +335,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   Widget _buildExplainer() {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -344,7 +345,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           'endpoint below. Cover art comes from the iTunes Search API '
           'and MusicBrainz (no scraping). AI suggestions are previewed '
           'first — nothing changes until you tap "Apply selected".',
-          style: TextStyle(color: Colors.grey[300], height: 1.4),
+          style: TextStyle(color: scheme.onSurfaceVariant, height: 1.4),
         ),
       ),
     );
@@ -403,6 +404,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   Widget _buildBatchList(List<Track> eligible) {
+    final scheme = Theme.of(context).colorScheme;
     if (eligible.isEmpty) {
       return const Text('No local or Drive tracks yet. Import some first.');
     }
@@ -421,7 +423,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             ),
             const Spacer(),
             Text('${_batchIds.length}/${eligible.length} selected',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
           ],
         ),
         ...eligible.map(
@@ -497,6 +499,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   Widget _buildAnalyzeButton() {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -509,7 +512,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               'Pick at least one track above.',
-              style: TextStyle(color: Colors.amber[200], fontSize: 12.5),
+              style: TextStyle(color: scheme.tertiary, fontSize: 12.5),
             ),
           ),
       ],
@@ -517,6 +520,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   Widget _buildProgress() {
+    final scheme = Theme.of(context).colorScheme;
     final total = _progressTotal == 0 ? 1 : _progressTotal;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
@@ -526,7 +530,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           LinearProgressIndicator(value: _progressDone / total),
           const SizedBox(height: 6),
           Text('$_progressDone/$_progressTotal…',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12.5)),
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5)),
         ],
       ),
     );
@@ -541,6 +545,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   Widget _buildProposalCard(_FixProposal p) {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       child: CheckboxListTile(
         controlAffinity: ListTileControlAffinity.leading,
@@ -551,7 +556,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(p.track.artist,
-                style: TextStyle(color: Colors.grey[400], fontSize: 12.5)),
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5)),
             const SizedBox(height: 6),
             if (p.newFilename != null)
               _changeRow('Filename', _basename(p.track.localPath ?? ''),
@@ -560,7 +565,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 2),
                 child: Text('Filename: Drive files can’t be renamed on-device.',
-                    style: TextStyle(color: Colors.grey[500], fontSize: 12.5)),
+                    style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5)),
               ),
             if (p.newTitle != null)
               _changeRow('Title', p.track.title, p.newTitle!),
@@ -583,10 +588,10 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Expanded(
+                    Expanded(
                       child: Text('Cover art → saved on-device',
                           style: TextStyle(
-                              color: Colors.green,
+                              color: scheme.primary,
                               fontSize: 12.5,
                               fontWeight: FontWeight.bold)),
                     ),
@@ -596,7 +601,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             if (!p.hasChanges && p.error == null)
               Text(
                 'No changes suggested.',
-                style: TextStyle(color: Colors.grey[500], fontSize: 12.5),
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5),
               ),
             const SizedBox(height: 4),
             Wrap(
@@ -608,7 +613,7 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
                     label: Text(p.lyricsFound! ? 'Lyrics found' : 'No lyrics',
                         style: const TextStyle(fontSize: 11.5)),
                     backgroundColor: p.lyricsFound!
-                        ? Colors.green.withValues(alpha: 0.25)
+                        ? scheme.primary.withValues(alpha: 0.25)
                         : Colors.grey.withValues(alpha: 0.25),
                     visualDensity: VisualDensity.compact,
                   ),
@@ -638,11 +643,12 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
   }
 
   Widget _changeRow(String field, String oldV, String newV) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: RichText(
         text: TextSpan(
-          style: TextStyle(color: Colors.grey[300], fontSize: 12.5),
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5),
           children: [
             TextSpan(
                 text: '$field: ',
@@ -653,8 +659,8 @@ class _AiFixerScreenState extends State<AiFixerScreen> {
             const TextSpan(text: '  →  '),
             TextSpan(
                 text: newV,
-                style: const TextStyle(
-                    color: Colors.green, fontWeight: FontWeight.bold)),
+                style: TextStyle(
+                    color: scheme.primary, fontWeight: FontWeight.bold)),
           ],
         ),
       ),

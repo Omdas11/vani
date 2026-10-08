@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../models/track.dart';
 import '../services/archive_api.dart';
 import '../services/player_controller.dart';
+import '../widgets/expressive.dart';
+import '../widgets/track_art.dart';
 import '../widgets/track_tile.dart';
 import 'drive_screen.dart';
 import 'settings_screen.dart';
@@ -10,6 +11,9 @@ import 'settings_screen.dart';
 /// Home: genre chips + horizontal shelves of open-licensed tracks.
 /// When "Internet Archive collections" is off in Settings, Home shows
 /// the user's own music (Drive + phone imports) instead.
+///
+/// M3 Expressive restyle: display-scale header with tonal circular
+/// utility buttons, large pill genre chips, squircle artwork cards.
 class HomeScreen extends StatefulWidget {
   final PlayerController pc;
   const HomeScreen({super.key, required this.pc});
@@ -53,35 +57,32 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Vani',
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 30,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-            )),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => SettingsScreen(pc: widget.pc),
-            )),
+      body: Column(
+        children: [
+          DisplayHeader(
+            title: 'Your Mix',
+            subtitle:
+                'Open-licensed picks for today · CC0 / CC-BY',
+            actions: [
+              TonalIconButton(
+                icon: Icons.settings_outlined,
+                tooltip: 'Settings',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        SettingsScreen(pc: widget.pc),
+                  ),
+                ),
+              ),
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: LicenseBadge(Track(
-              id: '',
-              title: '',
-              artist: '',
-              license: 'CC0',
-              licenseUrl: '',
-              artworkUrl: '',
-            )),
+          Expanded(
+            child: widget.pc.settings.iaEnabled
+                ? _archiveBody()
+                : _ownMusicBody(),
           ),
         ],
       ),
-      body: widget.pc.settings.iaEnabled ? _archiveBody() : _ownMusicBody(),
     );
   }
 
@@ -99,22 +100,20 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.library_music_outlined,
-                      size: 64, color: Colors.grey),
+                  Icon(Icons.library_music_outlined,
+                      size: 64,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant),
                   const SizedBox(height: 16),
                   const Text(
                     'Internet Archive collections are off.\nAdd your own music to get started.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  ElevatedButton.icon(
+                  FilledButton.tonalIcon(
                     icon: const Icon(Icons.cloud_outlined),
                     label: const Text('Open My Drive'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1DB954),
-                      foregroundColor: Colors.white,
-                    ),
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute(
                           builder: (_) => DriveScreen(pc: pc)),
@@ -126,15 +125,16 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
           children: [
-            const Text('Your music',
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text('${mine.length} tracks · Drive + this phone',
-                style: TextStyle(color: Colors.grey[400], fontSize: 13)),
-            const SizedBox(height: 8),
+            SongListHeader(
+              title: 'Your music',
+              count: mine.length,
+              onShuffle: () {
+                final shuffled = List<Track>.of(mine)..shuffle();
+                pc.playTracks(shuffled, 0);
+              },
+            ),
             ...mine.asMap().entries.map((e) => TrackTile(
                   track: e.value,
                   contextQueue: mine,
@@ -149,69 +149,91 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _archiveBody() {
     return FutureBuilder<Map<String, List<Track>>>(
-        future: _future,
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError || !snap.hasData) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Could not reach the Internet Archive.'),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: () =>
-                        setState(() => _future = _loadAll()),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          }
-          final data = snap.data!;
-          return RefreshIndicator(
-            onRefresh: () async =>
-                setState(() => _future = _loadAll()),
-            child: ListView(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError || !snap.hasData) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _genreChips(),
-                const SizedBox(height: 4),
-                _featuredShelf(data),
-                for (final g in ArchiveApi.genres.keys)
-                  if (g != 'Trending') _shelf(g, data[g] ?? []),
-                const SizedBox(height: 24),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'All music is Creative Commons (CC0 / CC-BY) from the Internet Archive. '
-                    'CC-BY tracks credit their artists in the player.',
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
+                const Text('Could not reach the Internet Archive.'),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () =>
+                      setState(() => _future = _loadAll()),
+                  child: const Text('Retry'),
                 ),
-                const SizedBox(height: 24),
               ],
             ),
           );
-        },
-      );
+        }
+        final data = snap.data!;
+        return RefreshIndicator(
+          onRefresh: () async =>
+              setState(() => _future = _loadAll()),
+          child: ListView(
+            children: [
+              _genreChips(),
+              const SizedBox(height: 4),
+              _featuredShelf(data),
+              for (final g in ArchiveApi.genres.keys)
+                if (g != 'Trending') _shelf(g, data[g] ?? []),
+              const SizedBox(height: 24),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'All music is Creative Commons (CC0 / CC-BY) from the Internet Archive. '
+                  'CC-BY tracks credit their artists in the player.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        );
+      },
+    );
   }
 
+  /// Large expressive pill chips (PixelPlayer Library pattern).
   Widget _genreChips() {
+    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 48,
+      height: 56,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: ArchiveApi.genres.keys.map((g) {
           final selected = g == _genre;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ChoiceChip(
-              label: Text(g),
+              label: Text(g.toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6)),
               selected: selected,
-              selectedColor: const Color(0xFF1DB954),
+              selectedColor: scheme.primaryContainer,
+              labelStyle: TextStyle(
+                  color: selected
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurfaceVariant),
+              shape: const StadiumBorder(),
+              showCheckmark: false,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
               onSelected: (_) => setState(() => _genre = g),
             ),
           );
@@ -220,53 +242,55 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Big horizontal cards for the selected genre.
+  /// Big horizontal cards for the selected genre, with squircle art.
   Widget _featuredShelf(Map<String, List<Track>> data) {
     final tracks = data[_genre] ?? [];
+    final theme = Theme.of(context);
     if (tracks.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
+      return Padding(
+        padding: const EdgeInsets.all(24),
         child: Text('No tracks found for this genre yet.',
-            style: TextStyle(color: Colors.grey)),
+            style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant)),
       );
     }
     return SizedBox(
-      height: 210,
+      height: 218,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: tracks.length,
         itemBuilder: (_, i) {
           final t = tracks[i];
           return GestureDetector(
             onTap: () => widget.pc.playTracks(tracks, i),
             child: Container(
-              width: 140,
-              margin: const EdgeInsets.only(right: 12),
+              width: 148,
+              margin: const EdgeInsets.only(right: 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Stack(
                     children: [
-                      TrackArt(t, size: 140, radius: 8),
+                      TrackArt(t, size: 148, radius: 28),
                       Positioned(
-                        left: 6,
-                        top: 6,
+                        left: 8,
+                        top: 8,
                         child: LicenseBadge(t),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Text(t.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(fontWeight: FontWeight.w600)),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600)),
                   Text(t.artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          TextStyle(color: Colors.grey[400], fontSize: 12)),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant)),
                 ],
               ),
             ),
@@ -278,44 +302,49 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _shelf(String genre, List<Track> tracks) {
     if (tracks.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
           child: Text(genre,
-              style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.bold)),
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w700)),
         ),
         SizedBox(
-          height: 176,
+          height: 184,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: tracks.length,
             itemBuilder: (_, i) {
               final t = tracks[i];
               return GestureDetector(
                 onTap: () => widget.pc.playTracks(tracks, i),
                 child: Container(
-                  width: 112,
-                  margin: const EdgeInsets.only(right: 12),
+                  width: 118,
+                  margin: const EdgeInsets.only(right: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TrackArt(t, size: 112, radius: 8),
-                      const SizedBox(height: 6),
+                      TrackArt(t, size: 118, radius: 24),
+                      const SizedBox(height: 8),
                       Text(t.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13)),
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13)),
                       Text(t.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: Colors.grey[400], fontSize: 11)),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(
+                                  color: theme.colorScheme
+                                      .onSurfaceVariant,
+                                  fontSize: 11)),
                     ],
                   ),
                 ),

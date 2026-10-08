@@ -25,6 +25,7 @@ class VinylRecord extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       width: size,
       height: size,
@@ -146,7 +147,7 @@ class VinylRecord extends StatelessWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                          color: const Color(0xFF1DB954), width: 2),
+                          color: scheme.primary, width: 2),
                       boxShadow: const [
                         BoxShadow(color: Colors.black45, blurRadius: 8)
                       ],
@@ -187,11 +188,14 @@ class VinylRecord extends StatelessWidget {
   }
 
   Widget _labelFallback() {
-    return Container(
-      color: const Color(0xFF1A1A1A),
-      child: const Icon(Icons.music_note,
-          color: Color(0xFF1DB954), size: 40),
-    );
+    return Builder(builder: (context) {
+      final scheme = Theme.of(context).colorScheme;
+      return Container(
+        color: scheme.surfaceContainerHighest,
+        child: Icon(Icons.music_note,
+            color: scheme.primary, size: 40),
+      );
+    });
   }
 }
 

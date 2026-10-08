@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
+import '../widgets/expressive.dart';
 import '../widgets/track_tile.dart';
 
 /// "My Drive" — the user's own music hosted on Google Drive.
@@ -14,49 +15,51 @@ class DriveScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tracks = pc.driveTracks;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('My Drive')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[900]!.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              'Add your own songs from Google Drive.\n'
-              '• In Drive, share each file (or folder) as "Anyone with the link" → Viewer.\n'
-              '• Paste the share link below, or host an index.json listing your songs.\n'
-              '• Drive\'s free 15 GB is shared with Gmail/Photos, and Google may '
-              'throttle heavy streaming ("quota exceeded") — for big libraries a '
-              'dedicated music server works better.',
-              style: TextStyle(fontSize: 12.5, height: 1.5),
+          Card(
+            color: scheme.tertiaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Add your own songs from Google Drive.\n'
+                '• In Drive, share each file (or folder) as "Anyone with the link" → Viewer.\n'
+                '• Paste the share link below, or host an index.json listing your songs.\n'
+                '• Drive\'s free 15 GB is shared with Gmail/Photos, and Google may '
+                'throttle heavy streaming ("quota exceeded") — for big libraries a '
+                'dedicated music server works better.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onTertiaryContainer,
+                    height: 1.5),
+              ),
             ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
+                child: FilledButton.icon(
                   icon: const Icon(Icons.add_link),
                   label: const Text('Add song from link'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1DB954),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(44),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
                   ),
                   onPressed: () => _addLinkDialog(context),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.file_download_outlined),
+                child: FilledButton.tonalIcon(
+                  icon:
+                      const Icon(Icons.file_download_outlined),
                   label: const Text('Import index.json'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
                   ),
                   onPressed: () => _importIndexDialog(context),
                 ),
@@ -65,17 +68,37 @@ class DriveScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           if (tracks.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 32),
+            Padding(
+              padding: const EdgeInsets.only(top: 32),
               child: Center(
-                child: Text(
-                  'No Drive songs yet.\nAdd your first link above.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_outlined,
+                        size: 56,
+                        color: scheme.onSurfaceVariant),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No Drive songs yet.\nAdd your first link above.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.5),
+                    ),
+                  ],
                 ),
               ),
             )
-          else
+          else ...[
+            SongListHeader(
+              title: 'My Drive',
+              count: tracks.length,
+              onShuffle: () {
+                final shuffled = List<Track>.of(tracks)
+                  ..shuffle();
+                pc.playTracks(shuffled, 0);
+              },
+            ),
             ...tracks.asMap().entries.map((e) {
               final i = e.key;
               final t = e.value;
@@ -83,11 +106,13 @@ class DriveScreen extends StatelessWidget {
                 key: ValueKey('drive::${t.id}'),
                 direction: DismissDirection.endToStart,
                 background: Container(
-                  color: Colors.red[900],
+                  color: scheme.errorContainer,
                   alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 20),
-                  child: const Text('Remove',
-                      style: TextStyle(color: Colors.white)),
+                  padding:
+                      const EdgeInsets.only(right: 24),
+                  child: Text('Remove',
+                      style: TextStyle(
+                          color: scheme.onErrorContainer)),
                 ),
                 onDismissed: (_) => pc.removeDriveTrack(t),
                 child: TrackTile(
@@ -96,10 +121,12 @@ class DriveScreen extends StatelessWidget {
                   indexInQueue: i,
                   pc: pc,
                   showOfflineBadge: true,
-                  onEdit: (track) => _editDialog(context, track),
+                  onEdit: (track) =>
+                      _editDialog(context, track),
                 ),
               );
             }),
+          ],
         ],
       ),
     );
@@ -145,7 +172,7 @@ class DriveScreen extends StatelessWidget {
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () async {
               final t = pc.driveTrackFromLink(
                 linkCtrl.text,
@@ -182,6 +209,7 @@ class DriveScreen extends StatelessWidget {
 
   void _importIndexDialog(BuildContext context) {
     final urlCtrl = TextEditingController();
+    final scheme = Theme.of(context).colorScheme;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -206,10 +234,12 @@ class DriveScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'Format: [{"title":"…","artist":"…","url":"…"}, …]\n'
                 '"url" may be a Drive share link or a direct audio URL.',
-                style: TextStyle(fontSize: 11.5, color: Colors.grey),
+                style: TextStyle(
+                    fontSize: 11.5,
+                    color: scheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -219,16 +249,18 @@ class DriveScreen extends StatelessWidget {
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () async {
-              final n = await pc.importDriveIndex(urlCtrl.text);
+              final n =
+                  await pc.importDriveIndex(urlCtrl.text);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                       content: Text(n > 0
                           ? 'Imported $n song${n == 1 ? '' : 's'}'
-                          : (pc.error ?? 'Nothing imported'))),
+                          : (pc.error ??
+                              'Nothing imported'))),
                 );
               }
             },
@@ -269,7 +301,7 @@ class DriveScreen extends StatelessWidget {
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () async {
               await pc.updateDriveTrack(
                   track, titleCtrl.text, artistCtrl.text);
