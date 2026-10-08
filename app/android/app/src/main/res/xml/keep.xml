@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vani: audio_service resolves its notification icons at runtime via
+     Resources.getIdentifier() with names passed from Dart over the method
+     channel (e.g. "drawable/audio_service_pause"). The AGP resource shrinker
+     cannot see these reflection-style references and strips the drawables,
+     leaving notification actions with null icons (no buttons on Android 11+
+     media carousel). Keep them explicitly. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*" />
