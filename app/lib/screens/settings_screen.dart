@@ -47,9 +47,8 @@ class SettingsScreen extends StatelessWidget {
                 tileColor: scheme.primaryContainer,
                 iconColor: scheme.onPrimaryContainer,
                 title: 'Look & Feel',
-                subtitle: s.matchSystemColor && s.dynamicColorSupported
-                    ? 'System theme color'
-                    : s.themePreset.label,
+                subtitle:
+                    '${s.themeMode.label} · ${s.matchSystemColor && s.dynamicColorSupported ? 'System color' : s.themePreset.label}',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                       builder: (_) => _ThemeSettingsScreen(pc: pc)),
@@ -402,6 +401,45 @@ class _ThemeSettingsScreen extends StatelessWidget {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
+              // ---- Theme mode ----
+              Text('Theme mode',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text(
+                'System follows your phone. AMOLED is pure black.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<ThemeModeOption>(
+                segments: const [
+                  ButtonSegment(
+                      value: ThemeModeOption.system,
+                      icon: Icon(Icons.smartphone, size: 18),
+                      label: Text('System')),
+                  ButtonSegment(
+                      value: ThemeModeOption.dark,
+                      icon: Icon(Icons.dark_mode, size: 18),
+                      label: Text('Dark')),
+                  ButtonSegment(
+                      value: ThemeModeOption.light,
+                      icon: Icon(Icons.light_mode, size: 18),
+                      label: Text('Light')),
+                  ButtonSegment(
+                      value: ThemeModeOption.amoled,
+                      icon: Icon(Icons.contrast, size: 18),
+                      label: Text('AMOLED')),
+                ],
+                selected: {s.themeMode},
+                onSelectionChanged: (sel) =>
+                    s.setThemeMode(sel.first),
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(height: 20),
               // ---- Dynamic color ----
               Card(
                 child: SwitchListTile(

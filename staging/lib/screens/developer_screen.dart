@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../services/crash_log.dart';
 import '../services/debug_log.dart';
 import '../services/player_controller.dart';
 
@@ -56,6 +57,23 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     );
   }
 
+  Future<void> _shareFile(File file) async {
+    try {
+      await _shareChannel
+          .invokeMethod('shareFile', {'path': file.path});
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Share failed: ${e.message}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Share failed: $e')),
+      );
+    }
+  }
+
   Future<void> _shareLogFile() async {
     if (_sharing) return;
     setState(() => _sharing = true);
@@ -70,21 +88,47 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
           'Vani $kAppVersion debug log — ${DateTime.now().toIso8601String()}\n'
           '${'=' * 60}\n'
           '${DebugLog.instance.export()}\n');
-      await _shareChannel
-          .invokeMethod('shareFile', {'path': file.path});
-    } on PlatformException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Share failed: ${e.message}')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Share failed: $e')),
-      );
+      await _shareFile(file);
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
+  }
+
+  Future<void> _shareCrashLog() async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    try {
+      final latest = await CrashLog.latestReport();
+      if (!mounted) return;
+      if (latest == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'No crash reports yet — tap "Simulate crash" first.')),
+        );
+        return;
+      }
+      await _shareFile(latest);
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
+  }
+
+  /// Throws a test exception through the real framework error path
+  /// (FlutterError.onError), where it is captured into the debug log
+  /// and persisted as a crash report — the same pipeline a genuine
+  /// crash travels. The app itself survives: only the test throw is
+  /// "crashing".
+  void _simulateCrash() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      throw StateError(
+          'Simulated test crash from Developer options (no real crash)');
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text(
+              'Test crash thrown — check the log and share the crash report.')),
+    );
   }
 
   @override
@@ -137,6 +181,32 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                             : const Icon(Icons.share, size: 18),
                         label: const Text('Share log file'),
                         onPressed: _sharing ? null : _shareLogFile,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.bug_report_outlined,
+                            size: 18),
+                        label: const Text('Simulate crash'),
+                        onPressed: _simulateCrash,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: _sharing
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2))
+                            : const Icon(
+                                Icons.warning_amber_outlined,
+                                size: 18),
+                        label: const Text('Share crash log'),
+                        onPressed:
+                            _sharing ? null : _shareCrashLog,
                       ),
                     ),
                     const SizedBox(width: 8),

@@ -1,0 +1,9 @@
+# Staging mirrors the release build's patched packages (see
+# app/pubspec_overrides.yaml, which pins the full offline mirror set).
+# Only just_audio_background is overridden here: it carries Vani's
+# notification button-set patch (prev-always / play-pause / next-always /
+# shuffle, no stop). Everything else resolves from pub.dev as usual so
+# `flutter pub get`, analyze and tests exercise the exact code that ships.
+dependency_overrides:
+  just_audio_background:
+    path: /home/hatch/workspace/opentune/.pub_pkgs/just_audio_background-0.0.1-beta.9

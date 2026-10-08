@@ -370,6 +370,14 @@ class PlayerController extends ChangeNotifier {
   Future<void> init() async {
     await settings.load();
     await _loadPersisted();
+    // Restore the cross-isolate shuffle mailbox so the notification shuffle
+    // icon is correct from the first broadcast (no reshuffle needed: the
+    // queue starts empty and _rebuildOrder honors `shuffle` on load).
+    try {
+      shuffle =
+          (await SharedPreferences.getInstance()).getBool('vani_shuffle') ??
+              false;
+    } catch (_) {}
     await _resolveEqSupport();
     stats.init(); // fire-and-forget: stats must never delay startup
     eqc.init(); // fire-and-forget: honors the persisted unsupported flag
@@ -392,6 +400,31 @@ class PlayerController extends ChangeNotifier {
   int get currentPlayPos => _orderPos;
 
   List<Track> get queue => List.unmodifiable(_queue);
+
+  /// The track a "next" action would land on (null at the end of the queue
+  /// without repeat-all). For the mini-player peek preview.
+  Track? get peekNextTrack {
+    if (_queue.isEmpty || _order.isEmpty) return null;
+    if (_orderPos + 1 < _order.length) return _queue[_order[_orderPos + 1]];
+    if (loopMode == 1) return _queue[_order[0]];
+    return null;
+  }
+
+  /// The track a "previous" action would land on (null at the start of the
+  /// queue). For the mini-player peek preview.
+  Track? get peekPreviousTrack {
+    if (_queue.isEmpty || _order.isEmpty) return null;
+    if (_orderPos - 1 >= 0) return _queue[_order[_orderPos - 1]];
+    return null;
+  }
+
+  /// User-facing message for a load timeout. Local/offline files never
+  /// involve the network, so the message must not blame the connection.
+  /// Pure logic: unit-tested.
+  @visibleForTesting
+  static String timeoutMessage(Track track) => track.isLocalTrack
+      ? 'Couldn\'t load "${track.title}" — the file may be missing or unreadable'
+      : 'Timed out loading "${track.title}" — check your connection';
 
   /// Tracks coming up after the current one, in play order.
   List<Track> get upNext {
@@ -564,7 +597,7 @@ class PlayerController extends ChangeNotifier {
         }
       }
     } on TimeoutException {
-      error = 'Timed out loading "${track.title}" — check your connection';
+      error = timeoutMessage(track);
       DebugLog.logNow('audio',
           'load timeout id=${track.id} title="${track.title}" source=${track.source}');
     } catch (e) {
@@ -665,6 +698,9 @@ class PlayerController extends ChangeNotifier {
         'audio',
         () =>
             'broadcast->notification ${formatBroadcastLine(processingState: state.processingState.name, playing: state.playing, seqIndex: _seqPlayPos.indexOf(_orderPos), seqLength: _seqPlayPos.length)} track=${currentTrack?.id}');
+    // A notification shuffle tap flips `vani_shuffle` in the background
+    // isolate and nudges us with a seek; apply the reshuffle here.
+    _syncShuffleFromNotification();
     if (state.processingState == ProcessingState.completed) {
       // With a concatenating source this only fires at the true end of
       // the sequence under LoopMode.off (LoopMode.all/one loop internally
@@ -854,8 +890,19 @@ class PlayerController extends ChangeNotifier {
     await _rebuildSequenceAroundCurrent(pos, wasPlaying);
   }
 
-  void toggleShuffle() {
-    shuffle = !shuffle;
+  void toggleShuffle() => setShuffle(!shuffle);
+
+  /// Sets shuffle mode, persists it to the `vani_shuffle` SharedPreferences
+  /// mailbox (read by the background audio handler for the notification
+  /// shuffle icon), reshuffles the play order, and rebuilds the background
+  /// sequence around the current track.
+  Future<void> setShuffle(bool value) async {
+    if (shuffle == value) return;
+    shuffle = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('vani_shuffle', value);
+    } catch (_) {}
     final cur = currentTrack;
     final pos = position;
     final wasPlaying = _player.playing;
@@ -865,6 +912,23 @@ class PlayerController extends ChangeNotifier {
     // current track so notification next/previous follow the new order.
     if (cur != null) {
       _rebuildSequenceAroundCurrent(pos, wasPlaying);
+    }
+  }
+
+  /// Applies a shuffle toggle that originated from the notification's
+  /// shuffle button (background isolate flips `vani_shuffle` and nudges us
+  /// with a same-position seek, which surfaces here as a player-state
+  /// event). Fire-and-forget; converges without feedback loops.
+  Future<void> _syncShuffleFromNotification() async {
+    bool? notifShuffle;
+    try {
+      notifShuffle =
+          (await SharedPreferences.getInstance()).getBool('vani_shuffle');
+    } catch (_) {
+      return;
+    }
+    if (notifShuffle != null && notifShuffle != shuffle) {
+      await setShuffle(notifShuffle);
     }
   }
 

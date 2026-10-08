@@ -53,6 +53,40 @@ enum ThemePreset {
       .firstWhere((p) => p.id == id, orElse: () => ThemePreset.neonMint);
 }
 
+/// Theme brightness mode: which overall light/dark treatment the app
+/// uses. System follows the phone; AMOLED is a pure-black variant of
+/// Dark; Light is a proper white Material 3 theme. Persisted by id;
+/// unknown ids fall back to System.
+enum ThemeModeOption {
+  system('system', 'System', 'Follow the phone'),
+  dark('dark', 'Dark', 'Always dark'),
+  light('light', 'Light', 'Always light'),
+  amoled('amoled', 'AMOLED', 'Pure black dark');
+
+  final String id;
+  final String label;
+  final String subtitle;
+
+  const ThemeModeOption(this.id, this.label, this.subtitle);
+
+  static ThemeModeOption byId(String? id) => ThemeModeOption.values
+      .firstWhere((m) => m.id == id, orElse: () => ThemeModeOption.system);
+
+  /// The effective [Brightness] for this mode given the phone's current
+  /// platform brightness. Pure logic: unit-testable.
+  Brightness effectiveBrightness(Brightness platform) {
+    switch (this) {
+      case ThemeModeOption.light:
+        return Brightness.light;
+      case ThemeModeOption.system:
+        return platform;
+      case ThemeModeOption.dark:
+      case ThemeModeOption.amoled:
+        return Brightness.dark;
+    }
+  }
+}
+
 /// User-adjustable corner-radius token, exposed through the Theme so any
 /// widget can read it via [VaniTheme.radiiOf]. Drives card / sheet /
 /// dialog radii app-wide (PixelPlayer pattern 15).
@@ -88,12 +122,28 @@ class VaniRadii extends ThemeExtension<VaniRadii> {
 class VaniTheme {
   VaniTheme._();
 
-  /// Full M3 dark ColorScheme for [preset].
-  static ColorScheme schemeForPreset(ThemePreset preset) {
+  /// Full M3 ColorScheme for [preset] at [brightness].
+  ///
+  /// Dark keeps the legacy Obsidian feel (near-black tinted surface,
+  /// seed-tinted container roles for tonal layering). AMOLED pins the
+  /// base surfaces to pure black. Light is a proper white M3 scheme.
+  static ColorScheme schemeForPreset(
+    ThemePreset preset, {
+    Brightness brightness = Brightness.dark,
+    bool amoled = false,
+  }) {
     final scheme = ColorScheme.fromSeed(
       seedColor: preset.seed,
-      brightness: Brightness.dark,
+      brightness: brightness,
     );
+    if (brightness == Brightness.light) return scheme;
+    if (amoled) {
+      return scheme.copyWith(
+        surface: const Color(0xFF000000),
+        surfaceContainerLow: const Color(0xFF000000),
+        surfaceContainerLowest: const Color(0xFF000000),
+      );
+    }
     // Obsidian feel: near-black tinted surface; the seed-tinted
     // container roles are kept for tonal layering.
     return scheme.copyWith(surface: preset.surfaceTint);
@@ -112,8 +162,10 @@ class VaniTheme {
   /// (google_fonts fetches the files on first use; offline it falls back
   /// to platform fonts). The PixelPlayer study could not confirm a better
   /// pick (Google Sans Flex is unlicensed), so Sora+Inter stay.
-  static TextTheme textTheme() {
-    final base = ThemeData.dark().textTheme;
+  static TextTheme textTheme({Brightness brightness = Brightness.dark}) {
+    final base = brightness == Brightness.light
+        ? ThemeData.light().textTheme
+        : ThemeData.dark().textTheme;
     try {
       final display = GoogleFonts.soraTextTheme(base);
       final body = GoogleFonts.interTextTheme(base);
@@ -155,7 +207,7 @@ class VaniTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: Colors.transparent,
-      textTheme: textTheme(),
+      textTheme: textTheme(brightness: scheme.brightness),
       extensions: [radii],
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
@@ -334,64 +386,92 @@ class VaniTheme {
   }
 }
 
-/// Resolves the wallpaper-derived dark ColorScheme via the
-/// `dynamic_color` platform channel (Android 12+). Returns null when the
-/// platform has no dynamic color (older Android, or the channel missing).
+/// Converts an OS [CorePalette] into a Flutter [ColorScheme] at the
+/// given brightness, replicating dynamic_color's conversion logic
+/// (fromSeed + exact OS role overrides) with Flutter types.
 ///
 /// NOTE: dynamic_color 2.1.0's own `toColorScheme()` extension targets the
 /// new `material_ui` package's forked `ColorScheme` type, which is not
-/// Flutter's `ColorScheme`. So this replicates its conversion logic
-/// (fromSeed + exact OS role overrides) with Flutter types, using the
+/// Flutter's `ColorScheme`, so this hand-rolls the mapping via the
 /// pure-Dart `material_color_utilities` Scheme directly.
-Future<ColorScheme?> resolveDynamicDarkScheme() async {
+// ignore: deprecated_member_use
+ColorScheme _dynamicSchemeFromPalette(
+    // ignore: deprecated_member_use
+    mcu.CorePalette palette,
+    Brightness brightness) {
+  // Scheme.darkFromCorePalette / lightFromCorePalette remain the
+  // supported CorePalette->roles conversions; migrating to
+  // DynamicScheme would mean hand-mapping ~30 roles with no behavior
+  // change.
+  // ignore: deprecated_member_use
+  final s = brightness == Brightness.light
+      // ignore: deprecated_member_use
+      ? mcu.Scheme.lightFromCorePalette(palette)
+      // ignore: deprecated_member_use
+      : mcu.Scheme.darkFromCorePalette(palette);
+  Color c(int argb) => Color(argb);
+  // Seed from the OS primary so the newer roles (surfaceContainer*,
+  // *Fixed*) that Scheme doesn't define still get sensible
+  // seed-derived values; then override every role the OS defines.
+  return ColorScheme.fromSeed(
+    seedColor: c(s.primary),
+    brightness: brightness,
+  ).copyWith(
+    primary: c(s.primary),
+    onPrimary: c(s.onPrimary),
+    primaryContainer: c(s.primaryContainer),
+    onPrimaryContainer: c(s.onPrimaryContainer),
+    secondary: c(s.secondary),
+    onSecondary: c(s.onSecondary),
+    secondaryContainer: c(s.secondaryContainer),
+    onSecondaryContainer: c(s.onSecondaryContainer),
+    tertiary: c(s.tertiary),
+    onTertiary: c(s.onTertiary),
+    tertiaryContainer: c(s.tertiaryContainer),
+    onTertiaryContainer: c(s.onTertiaryContainer),
+    error: c(s.error),
+    onError: c(s.onError),
+    errorContainer: c(s.errorContainer),
+    onErrorContainer: c(s.onErrorContainer),
+    outline: c(s.outline),
+    outlineVariant: c(s.outlineVariant),
+    surface: c(s.surface),
+    onSurface: c(s.onSurface),
+    // surfaceVariant was renamed surfaceContainerHighest (same tone).
+    surfaceContainerHighest: c(s.surfaceVariant),
+    onSurfaceVariant: c(s.onSurfaceVariant),
+    inverseSurface: c(s.inverseSurface),
+    onInverseSurface: c(s.inverseOnSurface),
+    inversePrimary: c(s.inversePrimary),
+    shadow: c(s.shadow),
+    surfaceTint: c(s.primary),
+    scrim: c(s.scrim),
+  );
+}
+
+/// Resolves the wallpaper-derived dynamic ColorScheme at [brightness]
+/// via the `dynamic_color` platform channel (Android 12+). Returns null
+/// when the platform has no dynamic color (older Android, or the
+/// channel missing).
+Future<ColorScheme?> resolveDynamicScheme(Brightness brightness) async {
   try {
     final palette = await DynamicColorPlugin.getCorePalette()
         .timeout(const Duration(seconds: 3));
     if (palette == null) return null;
-    // Scheme.darkFromCorePalette remains the supported CorePalette→roles
-    // conversion; migrating to DynamicScheme would mean hand-mapping ~30
-    // roles with no behavior change.
-    // ignore: deprecated_member_use
-    final s = mcu.Scheme.darkFromCorePalette(palette);
-    Color c(int argb) => Color(argb);
-    // Seed from the OS primary so the newer roles (surfaceContainer*,
-    // *Fixed*) that Scheme doesn't define still get sensible
-    // seed-derived values; then override every role the OS defines.
-    return ColorScheme.fromSeed(
-      seedColor: c(s.primary),
-      brightness: Brightness.dark,
-    ).copyWith(
-      primary: c(s.primary),
-      onPrimary: c(s.onPrimary),
-      primaryContainer: c(s.primaryContainer),
-      onPrimaryContainer: c(s.onPrimaryContainer),
-      secondary: c(s.secondary),
-      onSecondary: c(s.onSecondary),
-      secondaryContainer: c(s.secondaryContainer),
-      onSecondaryContainer: c(s.onSecondaryContainer),
-      tertiary: c(s.tertiary),
-      onTertiary: c(s.onTertiary),
-      tertiaryContainer: c(s.tertiaryContainer),
-      onTertiaryContainer: c(s.onTertiaryContainer),
-      error: c(s.error),
-      onError: c(s.onError),
-      errorContainer: c(s.errorContainer),
-      onErrorContainer: c(s.onErrorContainer),
-      outline: c(s.outline),
-      outlineVariant: c(s.outlineVariant),
-      surface: c(s.surface),
-      onSurface: c(s.onSurface),
-      // surfaceVariant was renamed surfaceContainerHighest (same tone).
-      surfaceContainerHighest: c(s.surfaceVariant),
-      onSurfaceVariant: c(s.onSurfaceVariant),
-      inverseSurface: c(s.inverseSurface),
-      onInverseSurface: c(s.inverseOnSurface),
-      inversePrimary: c(s.inversePrimary),
-      shadow: c(s.shadow),
-      surfaceTint: c(s.primary),
-      scrim: c(s.scrim),
-    );
+    return _dynamicSchemeFromPalette(palette, brightness);
   } catch (_) {
     return null;
   }
 }
+
+/// Resolves the wallpaper-derived dark ColorScheme via the
+/// `dynamic_color` platform channel (Android 12+). Returns null when the
+/// platform has no dynamic color (older Android, or the channel missing).
+Future<ColorScheme?> resolveDynamicDarkScheme() =>
+    resolveDynamicScheme(Brightness.dark);
+
+/// Light-mode counterpart of [resolveDynamicDarkScheme]: the
+/// wallpaper-derived light ColorScheme for the Light theme mode (or
+/// System mode when the phone is in light mode).
+Future<ColorScheme?> resolveDynamicLightScheme() =>
+    resolveDynamicScheme(Brightness.light);

@@ -35,3 +35,19 @@ class TabSwitchRequest extends InheritedWidget {
   @override
   bool updateShouldNotify(TabSwitchRequest oldWidget) => true;
 }
+
+/// Settings gear used in every main page header (Home, Search, Library,
+/// Stats). Taps switch to the Settings tab via [TabSwitchRequest] — never
+/// pushes a Settings page onto the current tab's navigator.
+class SettingsGearButton extends StatelessWidget {
+  const SettingsGearButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.settings_outlined),
+      tooltip: 'Settings',
+      onPressed: () => TabSwitchRequest.of(context)('settings'),
+    );
+  }
+}

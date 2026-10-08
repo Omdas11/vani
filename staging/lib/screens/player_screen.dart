@@ -165,8 +165,19 @@ class _PlayerScreenState extends State<PlayerScreen>
             (_dragMs ?? pos.inMilliseconds.toDouble()).clamp(0.0, maxMs);
         final dlProgress = pc.downloadProgressOf(track);
 
+        // Background: a vertical gradient derived from the dynamic
+        // theme color (falls back to the accent preset when dynamic color
+        // is off), flowing into the surface — no hard black band behind
+        // the vinyl or the controls.
+        final surface = scheme.surface;
+        final glowTop = Color.lerp(surface, scheme.primary, 0.30)!;
+        final glowMid = Color.lerp(surface, scheme.primary, 0.12)!;
         return Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            scrolledUnderElevation: 0,
             leading: Padding(
               padding: const EdgeInsets.only(left: 12),
               child: TonalIconButton(
@@ -210,8 +221,17 @@ class _PlayerScreenState extends State<PlayerScreen>
               ),
             ],
           ),
-          body: Column(
-            children: [
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [glowTop, glowMid, surface],
+                stops: const [0.0, 0.42, 1.0],
+              ),
+            ),
+            child: Column(
+              children: [
               // ---- Vinyl stage: ambient glow + full centered disc ----
               SizedBox(
                 height: vinylSize * 1.04,
@@ -306,7 +326,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                     // ---- Tappable lyrics preview ----
                     _lyricsPreviewCard(context, track),
                     const SizedBox(height: 12),
-                    Card(
+                    // Transparent transport panel: the gradient flows
+                    // straight through; controls float on it.
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
                         child: Column(
@@ -555,7 +580,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ],
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         );
       },

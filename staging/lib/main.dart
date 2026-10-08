@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +10,7 @@ import 'screens/search_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/stats_screen.dart';
 import 'services/app_settings.dart';
+import 'services/crash_log.dart';
 import 'services/debug_log.dart';
 import 'services/player_controller.dart';
 import 'services/vani_theme.dart';
@@ -24,10 +27,14 @@ Future<void> main() async {
   FlutterError.onError = (details) {
     DebugLog.logNow('error',
         'FlutterError: ${details.exception}\n${details.stack}');
+    // Persist every crash: the report survives restarts and can be
+    // shared from Developer options (incl. the Simulate-crash button).
+    unawaited(CrashLog.saveCrash(details.exception, details.stack));
     FlutterError.presentError(details);
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     DebugLog.logNow('error', 'uncaught async: $error\n$stack');
+    unawaited(CrashLog.saveCrash(error, stack));
     return true;
   };
   // Background playback + lock-screen/notification controls.
@@ -79,12 +86,17 @@ class VaniApp extends StatefulWidget {
   State<VaniApp> createState() => _VaniAppState();
 }
 
-class _VaniAppState extends State<VaniApp> {
+class _VaniAppState extends State<VaniApp> with WidgetsBindingObserver {
   late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Sync the phone's light/dark state before the first frame so
+    // System theme mode resolves correctly from launch.
+    widget.pc.settings.setPlatformBrightness(
+        WidgetsBinding.instance.platformDispatcher.platformBrightness);
     // Resolve the wallpaper-derived palette once at startup
     // (fire-and-forget: never blocks the first frame)…
     widget.pc.settings.refreshDynamicColor();
@@ -95,8 +107,18 @@ class _VaniAppState extends State<VaniApp> {
     );
   }
 
+  /// When the phone flips between light and dark, System theme mode
+  /// re-resolves and the whole MaterialApp rebuilds via the settings
+  /// AnimatedBuilder.
+  @override
+  void didChangePlatformBrightness() {
+    widget.pc.settings.setPlatformBrightness(
+        WidgetsBinding.instance.platformDispatcher.platformBrightness);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _lifecycle.dispose();
     super.dispose();
   }

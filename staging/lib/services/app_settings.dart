@@ -14,6 +14,8 @@ import 'vani_theme.dart';
 ///   order. Any subset of [NavDestination.ids], in any order.
 /// - [themePresetId]: fixed accent preset (see [ThemePreset]); default
 ///   Neon Mint (the legacy Obsidian Sonic look).
+/// - [themeModeId]: theme brightness mode (see [ThemeModeOption]);
+///   default System (follow the phone).
 /// - [matchSystemColor]: follow the wallpaper-derived Material You
 ///   palette on Android 12+. Default true; falls back to the preset when
 ///   the platform has no dynamic color.
@@ -25,6 +27,7 @@ class AppSettings extends ChangeNotifier {
   static const _kAnimBg = 'set_animated_bg';
   static const _kDockOrder = 'set_dock_order';
   static const _kThemePreset = 'set_theme_preset';
+  static const _kThemeMode = 'set_theme_mode';
   static const _kMatchSystem = 'set_match_system_color';
   static const _kCornerRadius = 'set_corner_radius';
   static const _kDevUnlocked = 'set_dev_unlocked';
@@ -36,6 +39,7 @@ class AppSettings extends ChangeNotifier {
   List<String> dockOrder = List.of(NavDestination.defaultOrder);
 
   String themePresetId = ThemePreset.neonMint.id;
+  String themeModeId = ThemeModeOption.system.id;
   bool matchSystemColor = true;
   double cornerRadius = 24;
 
@@ -52,6 +56,15 @@ class AppSettings extends ChangeNotifier {
   /// responded yet.
   ColorScheme? dynamicDarkScheme;
 
+  /// Light-mode counterpart, for the Light theme mode (or System mode
+  /// when the phone is in light mode).
+  ColorScheme? dynamicLightScheme;
+
+  /// The phone's current platform brightness, synced from main.dart
+  /// (init + platform-brightness observer). Defaults to dark so unit
+  /// tests and pre-first-frame builds resolve the legacy dark theme.
+  Brightness platformBrightness = Brightness.dark;
+
   /// True once the platform has actually supplied a dynamic palette.
   /// Drives the "Match system theme color" toggle's availability: on
   /// older Android the toggle shows as unavailable.
@@ -63,14 +76,31 @@ class AppSettings extends ChangeNotifier {
 
   ThemePreset get themePreset => ThemePreset.byId(themePresetId);
 
-  /// The effective scheme for the whole app: wallpaper-derived when the
-  /// user opted in and the platform supports it, otherwise the fixed
-  /// preset (Obsidian Sonic family). Pure logic: unit-testable.
+  ThemeModeOption get themeMode => ThemeModeOption.byId(themeModeId);
+
+  /// The effective scheme for the whole app, resolved for the
+  /// current [themeMode]:
+  /// - System: follows [platformBrightness]; Dark: always dark;
+  ///   Light: always light; AMOLED: pure-black dark.
+  /// - When "Match system theme color" is on and the platform supplied
+  ///   a dynamic palette for the effective brightness, it wins;
+  ///   otherwise the fixed accent preset (Light = proper white M3,
+  ///   AMOLED = pure-black variant, Dark = Obsidian family).
+  /// Pure logic: unit-testable.
   ColorScheme resolveColorScheme() {
-    if (matchSystemColor && dynamicDarkScheme != null) {
-      return dynamicDarkScheme!;
+    final mode = themeMode;
+    final brightness = mode.effectiveBrightness(platformBrightness);
+    if (matchSystemColor) {
+      final dynamicScheme = brightness == Brightness.light
+          ? dynamicLightScheme
+          : dynamicDarkScheme;
+      if (dynamicScheme != null) return dynamicScheme;
     }
-    return VaniTheme.schemeForPreset(themePreset);
+    return VaniTheme.schemeForPreset(
+      themePreset,
+      brightness: brightness,
+      amoled: mode == ThemeModeOption.amoled,
+    );
   }
 
   Future<void> load() async {
@@ -83,6 +113,8 @@ class AppSettings extends ChangeNotifier {
         prefs.getString(_kThemePreset) ?? ThemePreset.neonMint.id;
     // Unknown ids (e.g. from a newer preset list) fall back cleanly.
     themePresetId = ThemePreset.byId(themePresetId).id;
+    themeModeId = prefs.getString(_kThemeMode) ?? ThemeModeOption.system.id;
+    themeModeId = ThemeModeOption.byId(themeModeId).id;
     matchSystemColor = prefs.getBool(_kMatchSystem) ?? true;
     cornerRadius =
         (prefs.getDouble(_kCornerRadius) ?? 24).clamp(8.0, 32.0);
@@ -151,6 +183,21 @@ class AppSettings extends ChangeNotifier {
     await prefs.setString(_kThemePreset, preset.id);
   }
 
+  Future<void> setThemeMode(ThemeModeOption mode) async {
+    themeModeId = mode.id;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kThemeMode, mode.id);
+  }
+
+  /// Synced from the platform brightness observer in main.dart; rebuilds
+  /// the theme when the phone flips between light and dark (System mode).
+  void setPlatformBrightness(Brightness b) {
+    if (platformBrightness == b) return;
+    platformBrightness = b;
+    notifyListeners();
+  }
+
   Future<void> setMatchSystemColor(bool v) async {
     matchSystemColor = v;
     notifyListeners();
@@ -191,9 +238,14 @@ class AppSettings extends ChangeNotifier {
   /// Called once at startup and again on every app resume, so a
   /// wallpaper change re-themes the app.
   Future<void> refreshDynamicColor() async {
-    final scheme = await resolveDynamicDarkScheme();
-    dynamicDarkScheme = scheme;
-    dynamicColorSupported = scheme != null;
+    final results = await Future.wait([
+      resolveDynamicDarkScheme(),
+      resolveDynamicLightScheme(),
+    ]);
+    dynamicDarkScheme = results[0];
+    dynamicLightScheme = results[1];
+    dynamicColorSupported =
+        dynamicDarkScheme != null || dynamicLightScheme != null;
     notifyListeners();
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/player_controller.dart';
 import '../services/stats_service.dart';
+import '../widgets/nav.dart';
 
 /// "Your Stats": listening time, top tracks/artists, per-source split.
 /// Aggregated client-side from the device's Supabase listening events.
@@ -48,7 +49,10 @@ class _StatsScreenState extends State<StatsScreen> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Your Stats')),
+      appBar: AppBar(
+        title: const Text('Your Stats'),
+        actions: const [SettingsGearButton()],
+      ),
       body: FutureBuilder<_Loaded>(
         future: _future,
         builder: (context, snap) {

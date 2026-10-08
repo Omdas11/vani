@@ -113,9 +113,10 @@ class LibraryScreen extends StatelessWidget {
     return Scaffold(
       body: Column(
         children: [
-          const DisplayHeader(
+          DisplayHeader(
             title: 'Library',
             subtitle: 'Your music, your way',
+            actions: const [SettingsGearButton()],
           ),
           Expanded(
             child: AnimatedBuilder(

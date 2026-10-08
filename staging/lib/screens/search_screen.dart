@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
 import '../widgets/expressive.dart';
+import '../widgets/nav.dart';
 import '../widgets/track_tile.dart';
 
 /// Search the Internet Archive's CC0/CC-BY audio catalog, with
@@ -73,9 +74,10 @@ class _SearchScreenState extends State<SearchScreen> {
     return Scaffold(
       body: Column(
         children: [
-          const DisplayHeader(
+          DisplayHeader(
             title: 'Search',
             subtitle: 'Open-licensed music, artists and moods',
+            actions: const [SettingsGearButton()],
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),

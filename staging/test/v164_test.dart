@@ -21,6 +21,8 @@ class _FakePlayerController extends PlayerController {
   _FakePlayerController() : super.test();
 
   Track? fakeTrack;
+  Track? fakeNext;
+  Track? fakePrev;
   bool fakePlaying = true;
   int nextCalls = 0;
   int prevCalls = 0;
@@ -29,6 +31,12 @@ class _FakePlayerController extends PlayerController {
 
   @override
   Track? get currentTrack => fakeTrack;
+
+  @override
+  Track? get peekNextTrack => fakeNext;
+
+  @override
+  Track? get peekPreviousTrack => fakePrev;
 
   @override
   bool get isPlaying => fakePlaying;
@@ -145,21 +153,75 @@ void main() {
       return pc;
     }
 
-    testWidgets('swipe left triggers next track', (tester) async {
+    testWidgets('fling left with a next track commits the change',
+        (tester) async {
       final pc = await pumpMini(tester);
+      pc.fakeNext = _track('t2', 'Next Peek Song');
       await tester.fling(
           find.byType(MiniPlayer), const Offset(-400, 0), 1500);
+      // _commitPeek settles (190ms) before calling next().
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
       expect(pc.nextCalls, 1);
       expect(pc.prevCalls, 0);
     });
 
-    testWidgets('swipe right triggers previous track', (tester) async {
+    testWidgets('fling right with a previous track commits the change',
+        (tester) async {
       final pc = await pumpMini(tester);
+      pc.fakePrev = _track('t0', 'Prev Peek Song');
       await tester.fling(
           find.byType(MiniPlayer), const Offset(400, 0), 1500);
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
       expect(pc.prevCalls, 1);
+      expect(pc.nextCalls, 0);
+    });
+
+    testWidgets('fling left with no next track springs back, no skip',
+        (tester) async {
+      final pc = await pumpMini(tester);
+      // fakeNext stays null: end of queue → extra resistance, spring.
+      await tester.fling(
+          find.byType(MiniPlayer), const Offset(-400, 0), 1500);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(pc.nextCalls, 0);
+      expect(pc.prevCalls, 0);
+    });
+
+    testWidgets('slow horizontal drag without fling springs back',
+        (tester) async {
+      final pc = await pumpMini(tester);
+      pc.fakeNext = _track('t2', 'Next Peek Song');
+      final center = tester.getCenter(find.byType(MiniPlayer));
+      final gesture = await tester.startGesture(center);
+      // Drag in steps: the first move is consumed by the gesture arena's
+      // slop resolution, so a single moveBy never reaches the handler.
+      await gesture.moveBy(const Offset(-60, 0));
+      await gesture.moveBy(const Offset(-60, 0));
+      await tester.pump(const Duration(milliseconds: 300));
+      // The neighbor is revealed mid-drag (MarqueeText paints via
+      // TextPainter, so locate it by its key, not find.text)…
+      final peekTitle = find.byKey(const ValueKey('peek-title::t2'));
+      expect(peekTitle, findsOneWidget);
+      await gesture.up();
+      // …but releasing without fling velocity springs back: no skip.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(pc.nextCalls, 0);
+      expect(pc.prevCalls, 0);
+      expect(peekTitle, findsNothing);
+    });
+
+    testWidgets('sub-threshold fling does not commit', (tester) async {
+      final pc = await pumpMini(tester);
+      pc.fakeNext = _track('t2', 'Next Peek Song');
+      // 500 px/s < the 600 px/s commit threshold → spring back.
+      await tester.fling(
+          find.byType(MiniPlayer), const Offset(-400, 0), 500);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
       expect(pc.nextCalls, 0);
     });
 
