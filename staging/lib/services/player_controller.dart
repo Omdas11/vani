@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track.dart';
 import 'app_settings.dart';
 import 'archive_api.dart';
+import 'debug_log.dart';
 import 'drive_source.dart';
 import 'equalizer.dart';
 import 'local_library.dart';
@@ -212,6 +213,7 @@ class PlayerController extends ChangeNotifier {
       // This device already proved the equalizer unimplemented: never
       // attach the effect, and shed it from the optimistic startup
       // player while the native session is still idle.
+      DebugLog.logNow('eq', 'verdict: unsupported (persisted) — player rebuilt effect-free');
       await _setEqSupported(false);
       return;
     }
@@ -226,15 +228,18 @@ class PlayerController extends ChangeNotifier {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool(EqualizerController.kUnsupportedKey, false);
         } catch (_) {}
+        DebugLog.logNow('eq', 'verdict: supported (probe attempt ${attempt + 1})');
         return; // supported
       } catch (e) {
         if (isEqPlatformFailure(e)) {
+          DebugLog.logNow('eq', 'verdict: unsupported (platform failure: $e)');
           await _setEqSupported(false); // persists via markUnsupported
           return;
         }
         // Timeout / not-yet-connected: retry briefly.
       }
     }
+    DebugLog.logNow('eq', 'verdict: ambiguous after 3 probes — keeping optimistic player');
   }
 
   /// One-time effect shed at startup. Must only run before playback
@@ -348,6 +353,9 @@ class PlayerController extends ChangeNotifier {
     _rebuildOrder();
     _orderPos = shuffle ? _order.indexOf(startIndex) : startIndex;
     if (_orderPos < 0) _orderPos = 0;
+    final t = _queue[_order[_orderPos]];
+    DebugLog.log('track',
+        () => 'load id=${t.id} title="${t.title}" source=${t.source}');
     await _playCurrent();
   }
 
@@ -429,8 +437,12 @@ class PlayerController extends ChangeNotifier {
       }
     } on TimeoutException {
       error = 'Timed out loading "${track.title}" — check your connection';
+      DebugLog.logNow('audio',
+          'load timeout id=${track.id} title="${track.title}" source=${track.source}');
     } catch (e) {
       error = 'Playback failed: $e';
+      DebugLog.logNow('audio',
+          'load failed id=${track.id} title="${track.title}" source=${track.source} error=$e');
     } finally {
       // Only the latest generation clears the flag: a stale call can
       // never leave the spinner stuck on.
@@ -516,6 +528,15 @@ class PlayerController extends ChangeNotifier {
 
   void _onPlayerState(PlayerState state) {
     notifyListeners();
+    // Diagnostic: every state change the UI isolate observes is also a
+    // broadcast just_audio_background pushes to the native notification
+    // layer (its _broadcastState builds the MediaStyle notification from
+    // the same inputs). The controls list below mirrors the plugin's
+    // exact formula — see [formatBroadcastLine].
+    DebugLog.log(
+        'audio',
+        () =>
+            'broadcast->notification ${formatBroadcastLine(processingState: state.processingState.name, playing: state.playing, seqIndex: _seqPlayPos.indexOf(_orderPos), seqLength: _seqPlayPos.length)} track=${currentTrack?.id}');
     if (state.processingState == ProcessingState.completed) {
       // With a concatenating source this only fires at the true end of
       // the sequence under LoopMode.off (LoopMode.all/one loop internally
@@ -524,6 +545,51 @@ class PlayerController extends ChangeNotifier {
       _logCompleted();
       _player.stop(); // back to idle so replay starts clean
     }
+  }
+
+  /// Formats a playback-state broadcast line the way the native
+  /// notification layer sees it. just_audio_background's `_broadcastState`
+  /// builds its controls as: [skipToPrevious?] + play/pause + stop +
+  /// [skipToNext?], where prev/next presence comes from the background
+  /// sequence adjacency. [_seqPlayPos] IS that sequence (built by
+  /// [_fillSequence]), so passing its current index + length reproduces
+  /// the native list exactly. Pure logic: unit-testable.
+  @visibleForTesting
+  static String formatBroadcastLine({
+    required String processingState,
+    required bool playing,
+    required int seqIndex,
+    required int seqLength,
+  }) {
+    final parts = <String>[
+      if (seqIndex > 0) 'skipToPrevious',
+      playing ? 'pause' : 'play',
+      'stop',
+      if (seqIndex >= 0 && seqIndex < seqLength - 1) 'skipToNext',
+    ];
+    return 'processingState=$processingState playing=$playing '
+        'controls=[${parts.join(',')}]';
+  }
+
+  /// Stops playback ENTIRELY and clears the queue (mini-player
+  /// swipe-down-to-dismiss). Unlike pause, this releases the audio
+  /// source: the background service deactivates the media session,
+  /// which clears the system notification. currentTrack becomes null
+  /// so the mini player hides.
+  Future<void> stopAndClear() async {
+    DebugLog.logNow('audio', 'stopAndClear: stopping playback, clearing queue');
+    // _player is unassigned under the PlayerController.test() seam
+    // (widget tests have no platform channels); the catch keeps the
+    // seam working while the queue-clearing below is still exercised.
+    try {
+      await _player.stop();
+    } catch (_) {}
+    _queue = [];
+    _order = [];
+    _orderPos = 0;
+    _seqPlayPos = [];
+    _concat = null;
+    notifyListeners();
   }
 
   Future<void> togglePlayPause() async {

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../services/app_settings.dart';
+import '../services/debug_log.dart';
 import '../services/player_controller.dart';
 import '../services/vani_theme.dart';
 import '../widgets/expressive.dart';
 import 'ai_fixer_screen.dart';
+import 'developer_screen.dart';
 import 'equalizer_screen.dart';
 
 /// App settings as an icon-tile category index (Metro pattern): each row
@@ -150,10 +152,128 @@ class SettingsScreen extends StatelessWidget {
                 subtitle:
                     'No accounts, no ads, no tracking SDKs. Listening stats use an anonymous device id.',
               ),
+              if (s.devUnlocked)
+                _CategoryTile(
+                  icon: Icons.bug_report_outlined,
+                  tileColor: scheme.tertiaryContainer,
+                  iconColor: scheme.onTertiaryContainer,
+                  title: 'Developer options',
+                  subtitle: s.logCapture
+                      ? 'Log capture is ON — recording diagnostics.'
+                      : 'Log capture, diagnostics, bug reports.',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => DeveloperScreen(pc: pc)),
+                  ),
+                ),
+              // Hidden entry to Developer options: tap 7× (Android
+              // convention). The row itself is an ordinary version row.
+              VersionRow(pc: pc),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// The Settings "Version" row — doubles as the hidden Developer options
+/// entry: 7 taps unlock it (Android convention), with a toast counting
+/// down the remaining taps. Public for widget testing.
+class VersionRow extends StatefulWidget {
+  final PlayerController pc;
+  const VersionRow({super.key, required this.pc});
+
+  @override
+  State<VersionRow> createState() => VersionRowState();
+}
+
+class VersionRowState extends State<VersionRow> {
+  final DevUnlockCounter _counter = DevUnlockCounter();
+
+  Future<void> _onTap() async {
+    final s = widget.pc.settings;
+    if (s.devUnlocked) {
+      // Already unlocked: tapping again jumps straight in.
+      if (mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => DeveloperScreen(pc: widget.pc)));
+      }
+      return;
+    }
+    final remaining = _counter.tap();
+    if (remaining <= 0) {
+      _counter.reset();
+      await s.setDevUnlocked(true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Developer options unlocked.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            '$remaining ${remaining == 1 ? 'tap' : 'taps'} to enable developer options.'),
+        duration: const Duration(milliseconds: 900),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      child: Card(
+        child: InkWell(
+          borderRadius:
+              BorderRadius.circular(VaniTheme.radiiOf(context)),
+          onTap: _onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.info_outline,
+                      color: scheme.onSurfaceVariant, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Version',
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(
+                                  fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text('Vani $kAppVersion',
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(
+                                  color: scheme
+                                      .onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

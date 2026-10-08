@@ -19,6 +19,7 @@ class LibraryScreen extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     final choice = await showDialog<String>(
       context: context,
+      useRootNavigator: true,
       builder: (c) => SimpleDialog(
         title: const Text('Import from phone'),
         children: [
@@ -68,6 +69,7 @@ class LibraryScreen extends StatelessWidget {
     // Non-dismissible progress dialog driven by the notifier.
     showDialog(
       context: context,
+      useRootNavigator: true,
       barrierDismissible: false,
       builder: (_) => ValueListenableBuilder<(int, int)>(
         valueListenable: progress,
@@ -432,6 +434,7 @@ class LibraryScreen extends StatelessWidget {
     final ctrl = TextEditingController(text: oldName);
     showDialog(
       context: context,
+      useRootNavigator: true,
       builder: (_) => AlertDialog(
         title: const Text('Rename playlist'),
         content: TextField(

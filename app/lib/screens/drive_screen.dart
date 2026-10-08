@@ -138,6 +138,7 @@ class DriveScreen extends StatelessWidget {
     final artistCtrl = TextEditingController();
     showDialog(
       context: context,
+      useRootNavigator: true,
       builder: (_) => AlertDialog(
         title: const Text('Add song from Google Drive'),
         content: SingleChildScrollView(
@@ -212,6 +213,7 @@ class DriveScreen extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     showDialog(
       context: context,
+      useRootNavigator: true,
       builder: (_) => AlertDialog(
         title: const Text('Import index.json'),
         content: SingleChildScrollView(
@@ -277,6 +279,7 @@ class DriveScreen extends StatelessWidget {
         text: track.artist == 'Unknown artist' ? '' : track.artist);
     showDialog(
       context: context,
+      useRootNavigator: true,
       builder: (_) => AlertDialog(
         title: const Text('Edit song'),
         content: Column(

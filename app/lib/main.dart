@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'screens/home_screen.dart';
@@ -6,6 +7,7 @@ import 'screens/search_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/stats_screen.dart';
 import 'services/app_settings.dart';
+import 'services/debug_log.dart';
 import 'services/player_controller.dart';
 import 'services/vani_theme.dart';
 import 'widgets/app_background.dart';
@@ -14,6 +16,18 @@ import 'widgets/mini_player.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  DebugLog.logNow('app', 'Vani $kAppVersion starting');
+  // Uncaught errors (framework + async gaps) go to the in-app log with
+  // stack traces, so device issues can be diagnosed without adb.
+  FlutterError.onError = (details) {
+    DebugLog.logNow('error',
+        'FlutterError: ${details.exception}\n${details.stack}');
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    DebugLog.logNow('error', 'uncaught async: $error\n$stack');
+    return true;
+  };
   // Background playback + lock-screen/notification controls.
   // Must run before the first AudioPlayer is created.
   // NOTE: next/previous buttons appear in the notification only because
@@ -35,8 +49,10 @@ Future<void> main() async {
     androidNotificationIcon: 'mipmap/ic_launcher',
     notificationColor: const Color(0xFF00E59B),
   );
+  DebugLog.logNow('audio', 'JustAudioBackground.init done');
   final pc = PlayerController();
   await pc.init();
+  DebugLog.logNow('app', 'PlayerController.init done (settings loaded, EQ verdict resolved)');
   runApp(VaniApp(pc: pc));
 }
 
@@ -120,21 +136,43 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   String _tabId = 'home';
 
+  /// One navigator per tab (PixelPlayer/Spotify pattern): sub-pages
+  /// pushed inside a tab (playlist pages, settings sub-pages, …) stay
+  /// confined to the tab's content area, so the floating mini player +
+  /// dock in this shell keep floating above every screen. Keys persist
+  /// across rebuilds and dock reorderings, preserving each tab's
+  /// navigation stack.
+  final Map<String, GlobalKey<NavigatorState>> _navKeys = {};
+
+  GlobalKey<NavigatorState> _navKeyFor(String id) =>
+      _navKeys.putIfAbsent(id, () => GlobalKey<NavigatorState>());
+
   Widget _pageFor(String id) {
     final pc = widget.pc;
+    final Widget screen;
     switch (id) {
       case 'search':
-        return SearchScreen(pc: pc);
+        screen = SearchScreen(pc: pc);
+        break;
       case 'library':
-        return LibraryScreen(pc: pc);
+        screen = LibraryScreen(pc: pc);
+        break;
       case 'stats':
-        return StatsScreen(pc: pc);
+        screen = StatsScreen(pc: pc);
+        break;
       case 'settings':
-        return SettingsScreen(pc: pc);
+        screen = SettingsScreen(pc: pc);
+        break;
       case 'home':
       default:
-        return HomeScreen(pc: pc);
+        screen = HomeScreen(pc: pc);
+        break;
     }
+    return Navigator(
+      key: _navKeyFor(id),
+      onGenerateRoute: (_) =>
+          MaterialPageRoute(builder: (_) => screen),
+    );
   }
 
   @override

@@ -310,6 +310,7 @@ Future<void> showTrackActions(
     BuildContext context, PlayerController pc, Track track) {
   return showModalBottomSheet(
     context: context,
+    useRootNavigator: true,
     builder: (ctx) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -477,6 +478,7 @@ Future<void> showPlaylistPicker(
   final theme = Theme.of(context);
   return showModalBottomSheet(
     context: context,
+    useRootNavigator: true,
     builder: (ctx) {
       final names = pc.playlists.keys.toList();
       return SafeArea(
@@ -548,6 +550,7 @@ Future<void> showNewPlaylistDialog(BuildContext context,
   final ctrl = TextEditingController();
   return showDialog(
     context: context,
+    useRootNavigator: true,
     builder: (_) => AlertDialog(
       title: const Text('New playlist'),
       content: TextField(

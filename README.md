@@ -78,6 +78,19 @@ Full source notes: [`docs/MUSIC_SOURCES.md`](docs/MUSIC_SOURCES.md).
   (off → all → one), up-next queue (tap to jump), download-for-offline
   button with progress, license/attribution line, **lyrics button** and
   a tappable **lyrics preview** under the track info.
+- **Persistent mini-player** — floats above every screen (tabs and
+  pushed sub-pages alike) whenever a track is loaded; never hidden
+  behind the nav dock. Gestures: tap / swipe up → Now Playing;
+  swipe left → next track; swipe right → previous track; deliberate
+  swipe down (fast fling + distance) → stop playback entirely and
+  dismiss (clears the notification too).
+- **Developer options** — hidden entry: tap the Settings "Version" row
+  7× to unlock. In-app debug-log capture (ring buffer, last 3000 lines)
+  with a live viewer, copy, and share-log-file export — so
+  device-specific issues (e.g. notification controls) can be diagnosed
+  without adb. Logs every playback-state broadcast with the exact
+  native notification controls list, EQ probe verdicts, track loads,
+  load failures, and uncaught errors with stack traces.
 - **Floating dock** — the bottom navigation is a detached floating
   Material 3 Expressive pill dock; the mini player is a floating
   frosted-glass card above it with a thin progress line (tap or swipe
@@ -243,3 +256,7 @@ Notes:
   toast/line and stays on the current track in that case.
 - Release APK is signed with the debug key (`signingConfigs.debug`) —
   fine for sideloading, not for Play Store release.
+- v1.6.4 phone-untested: mini-player gestures feel (swipe left/right
+  track change, swipe-down-to-stop), mini player over every sub-page,
+  Developer options log capture/share on-device, FileProvider share
+  sheet.

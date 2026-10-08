@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'debug_log.dart';
 import 'vani_theme.dart';
 
 /// App-wide user settings, persisted in SharedPreferences.
@@ -26,6 +27,8 @@ class AppSettings extends ChangeNotifier {
   static const _kThemePreset = 'set_theme_preset';
   static const _kMatchSystem = 'set_match_system_color';
   static const _kCornerRadius = 'set_corner_radius';
+  static const _kDevUnlocked = 'set_dev_unlocked';
+  static const _kLogCapture = 'set_log_capture';
 
   bool iaEnabled = true;
   bool autoLoadLyrics = true;
@@ -35,6 +38,14 @@ class AppSettings extends ChangeNotifier {
   String themePresetId = ThemePreset.neonMint.id;
   bool matchSystemColor = true;
   double cornerRadius = 24;
+
+  /// Developer mode: unlocked by tapping the Settings version row 7×.
+  /// Persisted; gates the Developer options screen.
+  bool devUnlocked = false;
+
+  /// In-app debug-log capture (Developer options). Default off; when on,
+  /// diagnostic lines go to DebugLog's in-memory ring buffer.
+  bool logCapture = false;
 
   /// Last wallpaper-derived dark scheme from the platform, or null when
   /// the platform has no dynamic color (pre-Android 12) / hasn't
@@ -75,6 +86,11 @@ class AppSettings extends ChangeNotifier {
     matchSystemColor = prefs.getBool(_kMatchSystem) ?? true;
     cornerRadius =
         (prefs.getDouble(_kCornerRadius) ?? 24).clamp(8.0, 32.0);
+    devUnlocked = prefs.getBool(_kDevUnlocked) ?? false;
+    logCapture = prefs.getBool(_kLogCapture) ?? false;
+    // Sync the logger's master switch as early as possible so startup
+    // lines are captured when the user left capture on.
+    DebugLog.captureEnabled = logCapture;
     _loaded = true;
     notifyListeners();
   }
@@ -147,6 +163,25 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_kCornerRadius, cornerRadius);
+  }
+
+  /// Unlocks Developer options (hidden 7-tap entry on the version row).
+  Future<void> setDevUnlocked(bool v) async {
+    devUnlocked = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kDevUnlocked, v);
+  }
+
+  /// Toggles in-app debug-log capture. Syncs DebugLog's master switch
+  /// immediately so the toggle takes effect without a restart.
+  Future<void> setLogCapture(bool v) async {
+    logCapture = v;
+    DebugLog.captureEnabled = v;
+    if (v) DebugLog.logNow('app', 'log capture enabled by user');
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLogCapture, v);
   }
 
   /// (Re-)resolves the wallpaper-derived dynamic palette from the

@@ -117,6 +117,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _openLyrics(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => LyricsSheet(pc: widget.pc),
     );
@@ -125,6 +126,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _openQueue(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => _QueueSheet(pc: widget.pc),
     );

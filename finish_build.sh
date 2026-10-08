@@ -30,8 +30,41 @@ else:
     print('permissions already present')
 EOF
 
-echo "=== patching app/build.gradle.kts (minSdk 29, app id) ==="
-GRADLE=android/app/build.gradle.kts
+echo "=== ensuring FileProvider (v1.6.4 log-share) ==="
+XMLDIR=android/app/src/main/res/xml
+mkdir -p "$XMLDIR"
+if [ ! -f "$XMLDIR/file_paths.xml" ]; then
+  cat > "$XMLDIR/file_paths.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="shared" path="."/>
+</paths>
+EOF
+  echo "file_paths.xml created"
+fi
+python3 - "$MANIFEST" <<'EOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+provider = """    <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+    </provider>
+"""
+if 'androidx.core.content.FileProvider' not in s:
+    s = s.replace('    </application>', provider + '    </application>', 1)
+    open(p, 'w').write(s)
+    print('FileProvider added to manifest')
+else:
+    print('FileProvider already present')
+EOF
+
+echo "=== patching app/build.gradle.kts (minSdk 29, app id) ==="GRADLE=android/app/build.gradle.kts
 if [ -f "$GRADLE" ]; then
   # Task spec: minSdk 29 (Android 10+), applicationId com.opentune.app
   sed -i -E 's/minSdk\s*=\s*flutter\.minSdkVersion/minSdk = 29/; s/minSdkVersion\s+[0-9]+/minSdkVersion 29/; s/minSdk = 23/minSdk = 29/; s/minSdk = 26/minSdk = 29/' "$GRADLE"
