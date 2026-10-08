@@ -158,64 +158,57 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                   onChanged: (v) => s.setLogCapture(v),
                 ),
               ),
+              // v1.6.9: these used to be 5 Expanded buttons in a Row, which
+              // collapsed to ~60px each on phones and forced the labels
+              // into single-character-wide wrapped lines (unreadable
+              // vertical text). A Wrap keeps proper horizontal pills that
+              // flow onto multiple lines instead.
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Row(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.copy, size: 18),
-                        label: const Text('Copy logs'),
-                        onPressed: _copyLogs,
-                      ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.copy, size: 18),
+                      label: const Text('Copy logs'),
+                      onPressed: _copyLogs,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: _sharing
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2))
-                            : const Icon(Icons.share, size: 18),
-                        label: const Text('Share log file'),
-                        onPressed: _sharing ? null : _shareLogFile,
-                      ),
+                    OutlinedButton.icon(
+                      icon: _sharing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2))
+                          : const Icon(Icons.share, size: 18),
+                      label: const Text('Share log file'),
+                      onPressed: _sharing ? null : _shareLogFile,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.bug_report_outlined,
-                            size: 18),
-                        label: const Text('Simulate crash'),
-                        onPressed: _simulateCrash,
-                      ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.bug_report_outlined,
+                          size: 18),
+                      label: const Text('Simulate crash'),
+                      onPressed: _simulateCrash,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: _sharing
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2))
-                            : const Icon(
-                                Icons.warning_amber_outlined,
-                                size: 18),
-                        label: const Text('Share crash log'),
-                        onPressed:
-                            _sharing ? null : _shareCrashLog,
-                      ),
+                    OutlinedButton.icon(
+                      icon: _sharing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2))
+                          : const Icon(
+                              Icons.warning_amber_outlined,
+                              size: 18),
+                      label: const Text('Share crash log'),
+                      onPressed:
+                          _sharing ? null : _shareCrashLog,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        label: const Text('Clear'),
-                        onPressed: () => DebugLog.instance.clear(),
-                      ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('Clear'),
+                      onPressed: () => DebugLog.instance.clear(),
                     ),
                   ],
                 ),

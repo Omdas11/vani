@@ -1,5 +1,6 @@
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:material_color_utilities/material_color_utilities.dart'
     as mcu;
@@ -209,11 +210,16 @@ class VaniTheme {
       scaffoldBackgroundColor: Colors.transparent,
       textTheme: textTheme(brightness: scheme.brightness),
       extensions: [radii],
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
+        // v1.6.9: status-bar icons must stay visible in Light mode
+        // (dark icons on the light background; light icons on dark).
+        systemOverlayStyle: scheme.brightness == Brightness.light
+            ? SystemUiOverlayStyle.dark
+            : SystemUiOverlayStyle.light,
       ),
       // ---- Expressive buttons: pills everywhere ----
       filledButtonTheme: FilledButtonThemeData(

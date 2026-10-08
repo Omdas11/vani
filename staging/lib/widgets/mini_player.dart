@@ -13,13 +13,14 @@ import 'track_art.dart';
 /// title/artist, circular tonal play + skip buttons, and a thin progress
 /// line along the bottom edge.
 ///
-/// Gestures:
+/// Gestures (v1.6.9 Spotify-style rework):
 /// - tap / swipe up → Now Playing, via a smooth slide-up/fade/scale
 ///   route transition (no abrupt cut);
-/// - horizontal drag → **peek**: the card follows the finger with
-///   rubber-band resistance while the previous/next track slides in from
-///   the drag side; release without fling velocity springs back, a fling
-///   commits the track change with a settle animation;
+/// - horizontal drag → only the track identity block (artwork +
+///   title/artist) follows the finger; the card chrome (background,
+///   transport buttons, progress line) stays fixed. Release without a
+///   fling springs the content back; a fling slides the old content out
+///   and the neighbor's content in with a clean content-swap animation;
 /// - deliberate swipe down (fast fling AND real distance) → stop playback
 ///   entirely and dismiss the player.
 class MiniPlayer extends StatefulWidget {
@@ -33,10 +34,10 @@ class MiniPlayer extends StatefulWidget {
 
   const MiniPlayer({super.key, required this.pc, this.displayTrack});
 
-  /// Peek physics constants (shared with [_MiniPlayerState]).
-  static const double peekFullReveal = 120; // px of drag for full reveal
+  /// Content-slide physics constants (shared with [_MiniPlayerState]).
+  static const double peekFullReveal = 120; // px of drag for full slide
   static const double peekMaxDx = 150; // hard clamp after rubber-banding
-  static const double commitFlingVelocity = 600; // px/s to commit a peek
+  static const double commitFlingVelocity = 600; // px/s to commit a slide
 
   /// Rubber-banded horizontal displacement: linear-ish for small drags,
   /// progressively resisting past [peekFullReveal], hard-clamped at
@@ -67,7 +68,9 @@ class _MiniPlayerState extends State<MiniPlayer>
   String _tintUrl = '';
 
   /// Gesture animation plumbing. [_dragOffset]/[_dragOpacity] track the
-  /// finger live; [_offsetTween]/[_opacityTween] animate spring-back,
+  /// finger live for VERTICAL gestures (the whole card follows); the
+  /// horizontal content slide has its own controller below so the two
+  /// axes never fight. [_offsetTween]/[_opacityTween] animate spring-back,
   /// commit animations and the swipe-down dismiss. [_visualOffset] is
   /// their sum, so a release mid-drag animates from exactly where the
   /// finger left the card.
@@ -79,10 +82,20 @@ class _MiniPlayerState extends State<MiniPlayer>
   double _dragOpacity = 1.0;
   double _dragDy = 0.0; // accumulated vertical drag (stop threshold)
 
-  /// Peek state: which neighbor is being revealed (-1 next, +1 previous,
-  /// 0 none) and how far (0..1). Derived from the horizontal drag.
-  int _peekDir = 0;
-  double _peekT = 0.0;
+  /// Content-slide state (v1.6.9 Spotify rework): horizontal drags move
+  /// ONLY the track identity block (artwork + title/artist) inside the
+  /// fixed card chrome. [_contentDragDx] tracks the finger live;
+  /// [_contentTween]/[_contentOpacityTween] drive the spring-back and the
+  /// two-phase commit animation on [_contentAnim]. [_shownTrack] is the
+  /// track rendered in the identity block — it lags [pc.currentTrack]
+  /// by half a commit animation so the swap looks seamless.
+  late final AnimationController _contentAnim;
+  Tween<double> _contentTween = Tween(begin: 0.0, end: 0.0);
+  Tween<double> _contentOpacityTween = Tween(begin: 1.0, end: 1.0);
+  double _contentDragDx = 0.0;
+  double _contentDragOpacity = 1.0;
+  Track? _shownTrack;
+  bool _committing = false;
 
   /// Set while the dismiss animation runs so the card resets its
   /// transforms when it reappears for the next track.
@@ -93,8 +106,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   static const double _stopFlingVelocity = 500; // px/s, downward
   static const double _stopDragDistance = 48; // px, downward
 
-  /// Peek physics (canonical values live on [MiniPlayer]).
-  static const double _peekFullReveal = MiniPlayer.peekFullReveal;
+  /// Content-slide physics (canonical values live on [MiniPlayer]).
   static const double _commitFlingVelocity = MiniPlayer.commitFlingVelocity;
 
   PlayerController get pc => widget.pc;
@@ -106,11 +118,30 @@ class _MiniPlayerState extends State<MiniPlayer>
     _anim.addListener(() {
       if (mounted) setState(() {});
     });
+    _contentAnim = AnimationController(vsync: this);
+    _contentAnim.addListener(() {
+      if (mounted) setState(() {});
+    });
+    _shownTrack = pc.currentTrack;
+    pc.addListener(_syncShownTrack);
+  }
+
+  /// Keeps the identity block in sync when the track changes outside a
+  /// content-slide commit (natural track end, queue jump, etc.): the
+  /// content just swaps, no slide animation.
+  void _syncShownTrack() {
+    if (_committing || !mounted) return;
+    final cur = pc.currentTrack;
+    if (cur?.id != _shownTrack?.id) {
+      setState(() => _shownTrack = cur);
+    }
   }
 
   @override
   void dispose() {
+    pc.removeListener(_syncShownTrack);
     _anim.dispose();
+    _contentAnim.dispose();
     super.dispose();
   }
 
@@ -121,15 +152,31 @@ class _MiniPlayerState extends State<MiniPlayer>
           _opacityTween.chain(CurveTween(curve: _animCurve)).evaluate(_anim))
       .clamp(0.0, 1.0);
 
+  /// Live content offset: finger position plus the commit/spring
+  /// animation. Pure getter so release mid-drag animates from exactly
+  /// where the finger left the content.
+  double get _contentVisualDx =>
+      _contentDragDx + _contentTween.evaluate(_contentAnim);
+  double get _contentVisualOpacity => (_contentDragOpacity *
+          _contentOpacityTween.evaluate(_contentAnim))
+      .clamp(0.0, 1.0);
+
   void _resetTransforms() {
     _offsetTween = Tween(begin: Offset.zero, end: Offset.zero);
     _opacityTween = Tween(begin: 1.0, end: 1.0);
     _dragOffset = Offset.zero;
     _dragOpacity = 1.0;
     _dragDy = 0.0;
-    _peekDir = 0;
-    _peekT = 0.0;
     _anim.reset();
+    _resetContentTransforms();
+  }
+
+  void _resetContentTransforms() {
+    _contentTween = Tween(begin: 0.0, end: 0.0);
+    _contentOpacityTween = Tween(begin: 1.0, end: 1.0);
+    _contentDragDx = 0.0;
+    _contentDragOpacity = 1.0;
+    _contentAnim.reset();
   }
 
   void _animateTo({
@@ -147,15 +194,28 @@ class _MiniPlayerState extends State<MiniPlayer>
     _anim.forward(from: 0);
   }
 
+  /// Whole-card spring-back (vertical gestures only — horizontal drags
+  /// move just the content block, never the card).
   void _springBack() {
-    _peekDir = 0;
-    _peekT = 0.0;
     _animateTo(
       offset: Offset.zero,
       opacity: 1.0,
       duration: const Duration(milliseconds: 280),
       curve: Curves.elasticOut,
     );
+  }
+
+  /// Content spring-back: release without a fling returns the identity
+  /// block to center with a soft elastic settle.
+  void _springContentBack() {
+    _contentTween =
+        Tween(begin: _contentVisualDx, end: 0.0);
+    _contentOpacityTween =
+        Tween(begin: _contentVisualOpacity, end: 1.0);
+    _contentDragDx = 0.0;
+    _contentDragOpacity = 1.0;
+    _contentAnim.duration = const Duration(milliseconds: 280);
+    _contentAnim.forward(from: 0);
   }
 
 
@@ -165,8 +225,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   /// currentTrack → null hides the mini player.
   Future<void> _dismissAndStop() async {
     _dismissed = true;
-    _peekDir = 0;
-    _peekT = 0.0;
     _animateTo(
         offset: const Offset(0, 170),
         opacity: 0.0,
@@ -209,35 +267,57 @@ class _MiniPlayerState extends State<MiniPlayer>
     );
   }
 
-  /// Commit a peeked track change: settle the peek card to center while
-  /// the old card exits, swap the track, then reset transforms invisibly
-  /// (the settled peek card and the fresh current card render the same
-  /// track, so the reset is seamless).
-  Future<void> _commitPeek(int dir, double cardWidth) async {
-    final target = dir < 0 ? pc.peekNextTrack : pc.peekPreviousTrack;
-    if (target == null) {
-      _springBack();
+  /// Commit a content slide: the old identity block exits in the fling
+  /// direction while fading, the track actually changes at the midpoint,
+  /// then the new identity block enters from the opposite side — a clean
+  /// Spotify-style content swap with the card chrome never moving.
+  /// [dir] is -1 for next (fling left) and +1 for previous (fling right).
+  Future<void> _commitContentSlide(int dir, double cardWidth) async {
+    final neighbor =
+        dir < 0 ? pc.peekNextTrack : pc.peekPreviousTrack;
+    if (neighbor == null) {
+      _springContentBack();
       return;
     }
-    // Settle: old card exits in the fling direction, peek card centers.
-    _animateTo(
-      offset: Offset(dir < 0 ? -cardWidth : cardWidth, 0),
-      opacity: 0.35,
-      duration: const Duration(milliseconds: 190),
-      curve: Curves.easeOutCubic,
-    );
-    await Future.delayed(const Duration(milliseconds: 170));
+    _committing = true;
+    // Phase 1: old content exits in the fling direction, fading out.
+    _contentTween =
+        Tween(begin: _contentVisualDx, end: dir * cardWidth);
+    _contentOpacityTween =
+        Tween(begin: _contentVisualOpacity, end: 0.0);
+    _contentDragDx = 0.0;
+    _contentDragOpacity = 1.0;
+    _contentAnim.duration = const Duration(milliseconds: 180);
+    _contentAnim.forward(from: 0);
+    await Future.delayed(const Duration(milliseconds: 160));
     if (dir < 0) {
       await pc.next();
     } else {
       await pc.previous();
     }
-    if (mounted) _resetTransforms();
+    // Phase 2: the new track's content enters from the opposite side.
+    // _shownTrack is set explicitly here (not via _syncShownTrack) so
+    // the entering block renders the NEW track from the first frame.
+    if (mounted) {
+      setState(() {
+        _shownTrack = pc.currentTrack;
+        _contentTween = Tween(begin: -dir * cardWidth, end: 0.0);
+        _contentOpacityTween = Tween(begin: 0.0, end: 1.0);
+      });
+    }
+    _contentAnim.duration = const Duration(milliseconds: 220);
+    _contentAnim.forward(from: 0);
+    await Future.delayed(const Duration(milliseconds: 200));
+    _committing = false;
+    if (mounted) _resetContentTransforms();
   }
 
   @override
   Widget build(BuildContext context) {
-    final track = widget.displayTrack ?? pc.currentTrack;
+    // The identity block renders _shownTrack, which lags pc.currentTrack
+    // by half a commit animation during a content-slide swap (seamless),
+    // and follows it immediately for external changes (auto-advance).
+    final track = widget.displayTrack ?? _shownTrack;
     if (track == null) return const SizedBox.shrink();
     // Interactions only make sense while the track is actually loaded.
     // During the shell's exit animation displayTrack holds a stale track
@@ -268,9 +348,6 @@ class _MiniPlayerState extends State<MiniPlayer>
         final dur = pc.duration?.inMilliseconds.toDouble() ?? 0;
         final progress = dur > 0 ? (pos / dur).clamp(0.0, 1.0) : 0.0;
 
-        final peekTrack =
-            _peekDir < 0 ? pc.peekNextTrack : pc.peekPreviousTrack;
-
         return LayoutBuilder(
           builder: (context, constraints) {
             final cardWidth = constraints.maxWidth;
@@ -286,7 +363,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                       final dy =
                           (_dragOffset.dy + d.delta.dy).clamp(-72.0, 150.0);
                       setState(() {
-                        _dragOffset = Offset(_dragOffset.dx, dy);
+                        _dragOffset = Offset(0, dy);
                         _dragOpacity =
                             1.0 - (dy.clamp(0.0, 150.0) / 150.0) * 0.45;
                       });
@@ -314,101 +391,68 @@ class _MiniPlayerState extends State<MiniPlayer>
                       _springBack();
                     }
                   : null,
-              // Horizontal peek: drag reveals the neighbor track sliding
-              // in from the drag side with rubber-band resistance; fling
-              // commits the change, otherwise it springs back.
+              // Horizontal content slide (v1.6.9 Spotify rework): ONLY the
+              // track identity block (artwork + title/artist) follows the
+              // finger with rubber-band resistance — the card chrome
+              // (background, transport buttons, progress line) never
+              // moves. Release without a fling springs the content back;
+              // a fling swaps the content to the neighbor track.
               onHorizontalDragUpdate: live
                   ? (d) {
-                      final rawDx = _dragOffset.dx + d.delta.dx;
-                      final dx = MiniPlayer.rubberBand(rawDx);
+                      final rawDx = _contentDragDx + d.delta.dx;
+                      var dx = MiniPlayer.rubberBand(rawDx);
                       final dir = dx == 0 ? 0 : (dx < 0 ? -1 : 1);
                       final neighbor = dir < 0
                           ? pc.peekNextTrack
                           : pc.peekPreviousTrack;
-                      setState(() {
-                        _dragOffset = Offset(dx, _dragOffset.dy);
-                        // No neighbor: extra resistance, never reveal.
-                        if (neighbor == null) {
-                          _peekDir = 0;
-                          _peekT = 0.0;
-                          _dragOffset = Offset(dx * 0.45, _dragOffset.dy);
-                        } else {
-                          _peekDir = dir;
-                          _peekT = (dx.abs() / (_peekFullReveal * 0.62))
-                              .clamp(0.0, 1.0);
-                        }
-                      });
+                      // No neighbor at this end of the queue: extra
+                      // resistance, never commit.
+                      if (dir != 0 && neighbor == null) dx *= 0.45;
+                      setState(() => _contentDragDx = dx);
                     }
                   : null,
               onHorizontalDragEnd: live
                   ? (d) {
                       final v = d.primaryVelocity ?? 0;
-                      final dir = _peekDir;
-                      if (dir != 0 && v < -_commitFlingVelocity && dir < 0) {
-                        _commitPeek(-1, cardWidth);
-                      } else if (dir != 0 &&
-                          v > _commitFlingVelocity &&
-                          dir > 0) {
-                        _commitPeek(1, cardWidth);
+                      final dx = _contentDragDx;
+                      final dir = dx == 0 ? 0 : (dx < 0 ? -1 : 1);
+                      final neighbor = dir < 0
+                          ? pc.peekNextTrack
+                          : dir > 0
+                              ? pc.peekPreviousTrack
+                              : null;
+                      if (dir != 0 &&
+                          neighbor != null &&
+                          ((dir < 0 && v < -_commitFlingVelocity) ||
+                              (dir > 0 && v > _commitFlingVelocity))) {
+                        _commitContentSlide(dir, cardWidth);
                       } else {
-                        _springBack();
+                        _springContentBack();
                       }
                     }
                   : null,
-              onHorizontalDragCancel: live ? _springBack : null,
+              onHorizontalDragCancel: live ? _springContentBack : null,
               child: SizedBox(
                 height: 78,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    // Peek layer: the neighbor track slides in from the
-                    // drag side as the finger moves.
-                    if (_peekDir != 0 && peekTrack != null)
-                      Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: Transform.translate(
-                            offset: Offset(
-                              // Starts off-screen on the drag side, settles
-                              // toward center as the peek progresses.
-                              _peekDir *
-                                      cardWidth *
-                                      (1.0 -
-                                          Curves.easeOutCubic
-                                              .transform(_peekT)) +
-                                  _dragOffset.dx * 0.25,
-                              0,
-                            ),
-                            child: Opacity(
-                              opacity:
-                                  Curves.easeOutCubic.transform(_peekT),
-                              child: _PeekCard(
-                                track: peekTrack,
-                                tint: tint,
-                                onTint: onTint,
-                                direction: _peekDir,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    // Current card.
-                    Transform.translate(
-                      offset: _visualOffset,
-                      child: Opacity(
-                        opacity: _visualOpacity,
-                        child: _MiniCard(
-                          track: track,
-                          tint: tint,
-                          onTint: onTint,
-                          scheme: scheme,
-                          progress: progress,
-                          live: live,
-                          pc: pc,
-                        ),
-                      ),
+                // The whole card still moves for vertical gestures
+                // (swipe up/down); horizontal drags only ever move the
+                // identity content inside _MiniCard.
+                child: Transform.translate(
+                  offset: _visualOffset,
+                  child: Opacity(
+                    opacity: _visualOpacity,
+                    child: _MiniCard(
+                      track: track,
+                      tint: tint,
+                      onTint: onTint,
+                      scheme: scheme,
+                      progress: progress,
+                      live: live,
+                      pc: pc,
+                      contentDx: _contentVisualDx,
+                      contentOpacity: _contentVisualOpacity,
                     ),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -419,79 +463,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 }
 
-/// The neighbor-track preview revealed during a peek drag.
-class _PeekCard extends StatelessWidget {
-  final Track track;
-  final Color tint;
-  final Color onTint;
-  final int direction; // -1: next (from right), +1: previous (from left)
-
-  const _PeekCard({
-    required this.track,
-    required this.tint,
-    required this.onTint,
-    required this.direction,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 78,
-      decoration: BoxDecoration(
-        color: tint.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: onTint.withValues(alpha: 0.25)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Row(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(9),
-            child: TrackArt(track, size: 56, circular: true),
-          ),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  direction < 0 ? 'Next' : 'Previous',
-                  style: TextStyle(
-                    color: onTint.withValues(alpha: 0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                MarqueeText(
-                  key: ValueKey('peek-title::${track.id}'),
-                  text: track.title,
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: onTint,
-                      fontSize: 14),
-                ),
-                Text(
-                  track.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: onTint.withValues(alpha: 0.75), fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            direction < 0 ? Icons.skip_next : Icons.skip_previous,
-            color: onTint.withValues(alpha: 0.7),
-          ),
-          const SizedBox(width: 16),
-        ],
-      ),
-    );
-  }
-}
 
 /// The main mini-player card (extracted so the peek layer can sit under it).
+/// The main mini-player card. The card chrome (tinted background,
+/// transport buttons, progress line) never moves horizontally; only the
+/// track identity block (artwork + title/artist) translates via
+/// [contentDx]/[contentOpacity] — the v1.6.9 Spotify-style rework.
 class _MiniCard extends StatelessWidget {
   final Track track;
   final Color tint;
@@ -501,6 +478,13 @@ class _MiniCard extends StatelessWidget {
   final bool live;
   final PlayerController pc;
 
+  /// Horizontal offset of the identity block (finger drag / commit
+  /// animation). The chrome stays fixed.
+  final double contentDx;
+
+  /// Opacity of the identity block during the commit animation.
+  final double contentOpacity;
+
   const _MiniCard({
     required this.track,
     required this.tint,
@@ -509,6 +493,8 @@ class _MiniCard extends StatelessWidget {
     required this.progress,
     required this.live,
     required this.pc,
+    this.contentDx = 0.0,
+    this.contentOpacity = 1.0,
   });
 
   @override
@@ -532,32 +518,54 @@ class _MiniCard extends StatelessWidget {
           Expanded(
             child: Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(9),
-                  child: TrackArt(track, size: 56, circular: true),
-                ),
+                // Identity block: the ONLY part that slides horizontally.
+                // Clipped to the strip so mid-animation frames never
+                // overflow the card's rounded corners.
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      MarqueeText(
-                        key: ValueKey('mini-title::${track.id}'),
-                        text: track.title,
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: onTint,
-                            fontSize: 14),
+                  child: ClipRect(
+                    child: Transform.translate(
+                      offset: Offset(contentDx, 0),
+                      child: Opacity(
+                        opacity: contentOpacity,
+                        child: Row(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(9),
+                              child: TrackArt(track,
+                                  size: 56, circular: true),
+                            ),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.center,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  MarqueeText(
+                                    key: ValueKey(
+                                        'mini-title::${track.id}'),
+                                    text: track.title,
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: onTint,
+                                        fontSize: 14),
+                                  ),
+                                  Text(
+                                    track.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        color: onTint.withValues(
+                                            alpha: 0.75),
+                                        fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      Text(
-                        track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: onTint.withValues(alpha: 0.75),
-                            fontSize: 12),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 // Prev/play/next: the full transport set lives here as

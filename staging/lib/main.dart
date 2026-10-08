@@ -279,6 +279,13 @@ class _MainShellState extends State<MainShell> {
             order.map(NavDestination.byId).toList(growable: false);
         if (!order.contains(_tabId)) _tabId = order.first;
         final tabIndex = order.indexOf(_tabId);
+        // v1.6.9: status-bar icon brightness follows the theme mode even
+        // on screens without an AppBar (the AppBarTheme style only
+        // applies under AppBars).
+        final overlayStyle =
+            Theme.of(context).brightness == Brightness.light
+                ? SystemUiOverlayStyle.dark
+                : SystemUiOverlayStyle.light;
         return TabSwitchRequest(
           switchTab: _switchTab,
           child: PopScope(
@@ -288,7 +295,9 @@ class _MainShellState extends State<MainShell> {
             onPopInvokedWithResult: (didPop, _) {
               if (!didPop) _handleBack();
             },
-            child: Scaffold(
+            child: AnnotatedRegion<SystemUiOverlayStyle>(
+              value: overlayStyle,
+              child: Scaffold(
               // Animated gradient + veena watermark behind everything
               // (toggle in Settings → Look & Feel).
               body: Stack(
@@ -390,6 +399,7 @@ class _MainShellState extends State<MainShell> {
                   ),
                 ],
               ),
+            ),
             ),
           ),
         );
