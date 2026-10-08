@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
 import '../widgets/expressive.dart';
+import '../widgets/nav.dart';
 import '../widgets/track_tile.dart';
 
 /// "My Drive" — the user's own music hosted on Google Drive.
@@ -170,7 +171,7 @@ class DriveScreen extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => dismissRootDialog(context),
             child: const Text('Cancel'),
           ),
           FilledButton(
@@ -192,7 +193,7 @@ class DriveScreen extends StatelessWidget {
               }
               final added = await pc.addDriveTrack(t);
               if (context.mounted) {
-                Navigator.pop(context);
+                dismissRootDialog(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                       content: Text(added
@@ -248,7 +249,7 @@ class DriveScreen extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => dismissRootDialog(context),
             child: const Text('Cancel'),
           ),
           FilledButton(
@@ -256,7 +257,7 @@ class DriveScreen extends StatelessWidget {
               final n =
                   await pc.importDriveIndex(urlCtrl.text);
               if (context.mounted) {
-                Navigator.pop(context);
+                dismissRootDialog(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                       content: Text(n > 0
@@ -301,14 +302,14 @@ class DriveScreen extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => dismissRootDialog(context),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () async {
               await pc.updateDriveTrack(
                   track, titleCtrl.text, artistCtrl.text);
-              if (context.mounted) Navigator.pop(context);
+              if (context.mounted) dismissRootDialog(context);
             },
             child: const Text('Save'),
           ),

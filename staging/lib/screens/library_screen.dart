@@ -3,6 +3,7 @@ import '../models/track.dart';
 import '../services/player_controller.dart';
 import '../services/vani_theme.dart';
 import '../widgets/expressive.dart';
+import '../widgets/nav.dart';
 import '../widgets/track_art.dart';
 import '../widgets/track_tile.dart';
 import 'drive_screen.dart';
@@ -93,13 +94,13 @@ class LibraryScreen extends StatelessWidget {
       added = await pc.importLocalFolder(
           onProgress: (d, t) => progress.value = (d, t));
     } catch (e) {
-      if (dialogOpen && context.mounted) Navigator.pop(context);
+      if (dialogOpen && context.mounted) dismissRootDialog(context);
       messenger.showSnackBar(SnackBar(content: Text('Import failed: $e')));
       progress.dispose();
       return;
     }
     progress.dispose();
-    if (dialogOpen && context.mounted) Navigator.pop(context);
+    if (dialogOpen && context.mounted) dismissRootDialog(context);
     messenger.showSnackBar(SnackBar(
       content: Text(added > 0
           ? 'Imported $added track${added == 1 ? '' : 's'} from the folder.'
@@ -445,13 +446,13 @@ class LibraryScreen extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => dismissRootDialog(context),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () async {
               await pc.renamePlaylist(oldName, ctrl.text);
-              if (context.mounted) Navigator.pop(context);
+              if (context.mounted) dismissRootDialog(context);
             },
             child: const Text('Save'),
           ),

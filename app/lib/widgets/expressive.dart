@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/player_controller.dart';
 import '../services/vani_theme.dart';
+import 'nav.dart';
 import 'track_art.dart';
 
 /// Circular tonal icon button (PixelPlayer top-bar / transport pattern).
@@ -560,18 +561,18 @@ Future<void> showNewPlaylistDialog(BuildContext context,
             const InputDecoration(hintText: 'Playlist name'),
         onSubmitted: (_) async {
           await onSave(ctrl.text);
-          if (context.mounted) Navigator.pop(context);
+          if (context.mounted) dismissRootDialog(context);
         },
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => dismissRootDialog(context),
           child: const Text('Cancel'),
         ),
         FilledButton(
           onPressed: () async {
             await onSave(ctrl.text);
-            if (context.mounted) Navigator.pop(context);
+            if (context.mounted) dismissRootDialog(context);
           },
           child: const Text('Create'),
         ),

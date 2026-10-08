@@ -3,10 +3,10 @@ import '../models/track.dart';
 import '../services/archive_api.dart';
 import '../services/player_controller.dart';
 import '../widgets/expressive.dart';
+import '../widgets/nav.dart';
 import '../widgets/track_art.dart';
 import '../widgets/track_tile.dart';
 import 'drive_screen.dart';
-import 'settings_screen.dart';
 
 /// Home: genre chips + horizontal shelves of open-licensed tracks.
 /// When "Internet Archive collections" is off in Settings, Home shows
@@ -67,12 +67,11 @@ class _HomeScreenState extends State<HomeScreen> {
               TonalIconButton(
                 icon: Icons.settings_outlined,
                 tooltip: 'Settings',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        SettingsScreen(pc: widget.pc),
-                  ),
-                ),
+                // Jump to the Settings tab (via MainShell) instead of
+                // pushing a Settings page onto the Home tab's own
+                // navigator — that rendered "settings inside home"
+                // while the dock still showed Home selected.
+                onPressed: () => TabSwitchRequest.of(context)('settings'),
               ),
             ],
           ),
