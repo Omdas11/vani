@@ -21,6 +21,23 @@ class EqualizerController extends ChangeNotifier {
   static const _kPreset = 'eq_preset';
   static const _kGains = 'eq_gains';
 
+  /// Persisted once the platform proves the equalizer method channel
+  /// unimplemented. Lets the next launch skip the effect (and the probe)
+  /// entirely instead of rediscovering the failure on first playback.
+  /// Public so PlayerController can consult it before building the player.
+  static const kUnsupportedKey = 'eq_unsupported';
+
+  /// Reads the persisted unsupported flag. Null = never probed.
+  static Future<bool?> loadPersistedUnsupported() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!prefs.containsKey(kUnsupportedKey)) return null;
+      return prefs.getBool(kUnsupportedKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
   static const List<String> presets = [
     'Normal',
     'Bass Boost',
@@ -52,10 +69,18 @@ class EqualizerController extends ChangeNotifier {
 
   /// Marks the equalizer as unsupported by this device's platform.
   /// After this, [init] is a no-op and playback must be built without
-  /// the equalizer in the audio pipeline.
+  /// the equalizer in the audio pipeline. The verdict is persisted so
+  /// future launches never attach the effect (or probe for it) again.
   void markUnsupported() {
     supported = false;
     ready = false;
+    // Persist fire-and-forget; storage failures must never surface.
+    () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(kUnsupportedKey, true);
+      } catch (_) {}
+    }();
     notifyListeners();
   }
 
@@ -73,6 +98,13 @@ class EqualizerController extends ChangeNotifier {
   Future<void> init(
       {Duration probeBudget = const Duration(seconds: 8)}) async {
     if (!supported || _probing) return;
+    // A previous launch already proved the platform declines the
+    // equalizer: don't probe again, just stay unavailable.
+    final persisted = await loadPersistedUnsupported();
+    if (persisted == true) {
+      markUnsupported();
+      return;
+    }
     _probing = true;
     try {
       final deadline = DateTime.now().add(probeBudget);

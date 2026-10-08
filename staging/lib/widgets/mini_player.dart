@@ -113,6 +113,19 @@ class _MiniPlayerState extends State<MiniPlayer> {
                           ],
                         ),
                       ),
+                      // Prev/play/next: the full transport set lives here as
+                      // well as on the Now Playing screen (v1.6.2
+                      // regression guard).
+                      TonalIconButton(
+                        icon: Icons.skip_previous,
+                        iconSize: 24,
+                        size: 46,
+                        backgroundColor: onTint.withValues(alpha: 0.16),
+                        foregroundColor: onTint,
+                        tooltip: 'Previous',
+                        onPressed: pc.previous,
+                      ),
+                      const SizedBox(width: 4),
                       // Spinner only while genuinely loading (never while
                       // audio is playing — see the controller invariant).
                       if (pc.isLoading && !pc.isPlaying)

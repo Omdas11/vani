@@ -117,9 +117,11 @@ class PlayerController extends ChangeNotifier {
   final Map<String, double> downloadProgress = {};
 
   PlayerController() {
-    // Optimistic: most devices implement the equalizer channel. If the
-    // platform proves otherwise on first playback, the player is rebuilt
-    // without the effect (see _playCurrent's retry path).
+    // Optimistic: most devices implement the equalizer channel. init()
+    // resolves support once (bounded probe, persisted verdict) and
+    // rebuilds effect-free BEFORE any playback can start if the platform
+    // declines — so playback never triggers the mid-session native
+    // audio-service teardown that killed notification buttons (v1.6.2).
     _buildPlayer(withEq: true);
   }
 
@@ -169,9 +171,11 @@ class PlayerController extends ChangeNotifier {
   }
 
   /// Permanently disables the equalizer for this session: marks the
-  /// controller unsupported (hides EQ UI, stops init retries) and
-  /// rebuilds the player with an effect-free pipeline so the throwing
-  /// platform method is never called again.
+  /// controller unsupported (hides EQ UI, stops init retries, persists
+  /// the verdict) and rebuilds the player with an effect-free pipeline
+  /// so the throwing platform method is never called again.
+  /// Last-resort safety net only: [init] now resolves EQ support at
+  /// startup, before any playback, so this path should never fire.
   Future<void> _disableEqAndRebuildPlayer() async {
     _eqSupported = false;
     eqc.markUnsupported();
@@ -182,11 +186,69 @@ class PlayerController extends ChangeNotifier {
     _buildPlayer(withEq: false);
   }
 
+  /// Resolves equalizer support ONCE at startup, before any playback
+  /// can exist. Why this matters (v1.6.2 root-cause fix): on devices
+  /// where the native equalizer channel is unimplemented, discovering
+  /// the failure inside setAudioSource forced a player dispose+rebuild
+  /// on EVERY first playback — dispose drives the native AudioService
+  /// through stop() (media session deactivated, notification cancelled,
+  /// stopSelf()) and the rebuild immediately restarts the foreground
+  /// service, racing the old instance's onDestroy (instance=null,
+  /// session released). That race is what left the notification bound
+  /// to a dead session with zero transport buttons. Resolving support
+  /// here, while the native session is still idle, makes the single
+  /// rebuild (if needed) completely clean: idle->idle never triggers
+  /// the native stop path.
+  Future<void> _resolveEqSupport() async {
+    final persisted = await EqualizerController.loadPersistedUnsupported();
+    if (persisted == true) {
+      // This device already proved the equalizer unimplemented: never
+      // attach the effect, and shed it from the optimistic startup
+      // player while the native session is still idle.
+      await _setEqSupported(false);
+      return;
+    }
+    // First launch (or previously fine): probe the live player with a
+    // tight budget. A definitive platform refusal rebuilds once here;
+    // ambiguity keeps the optimistic player and the playback-path guard
+    // remains as a last resort.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await equalizer.parameters.timeout(const Duration(milliseconds: 800));
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool(EqualizerController.kUnsupportedKey, false);
+        } catch (_) {}
+        return; // supported
+      } catch (e) {
+        if (isEqPlatformFailure(e)) {
+          await _setEqSupported(false); // persists via markUnsupported
+          return;
+        }
+        // Timeout / not-yet-connected: retry briefly.
+      }
+    }
+  }
+
+  /// One-time effect shed at startup. Must only run before playback
+  /// begins (see [_resolveEqSupport]).
+  Future<void> _setEqSupported(bool supported) async {
+    eqc.markUnsupported(); // persists the verdict; idempotent
+    if (_eqSupported == supported) return;
+    _eqSupported = supported;
+    _detachPlayerListeners();
+    try {
+      await _player.dispose();
+    } catch (_) {}
+    _buildPlayer(withEq: supported);
+  }
+
   Future<void> init() async {
     await settings.load();
     await _loadPersisted();
+    await _resolveEqSupport();
     stats.init(); // fire-and-forget: stats must never delay startup
-    eqc.init(); // fire-and-forget: retries until the platform connects
+    eqc.init(); // fire-and-forget: honors the persisted unsupported flag
   }
 
   @override

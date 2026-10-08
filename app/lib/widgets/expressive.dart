@@ -165,9 +165,12 @@ class SongListHeader extends StatelessWidget {
   }
 }
 
-/// Scrolls (rather than truncates) long single-line titles
-/// (PixelPlayer marquee pattern). Falls back to ellipsis when the text
-/// fits.
+/// Scrolls (rather than truncates) long single-line titles.
+/// Seamless wrap loop: the text is duplicated with a gap and scrolls
+/// forward continuously, wrapping back to offset 0 — so the title
+/// ALWAYS begins at its first character at every loop restart, and the
+/// full text is shown in every cycle. Falls back to ellipsis when the
+/// text fits.
 class MarqueeText extends StatefulWidget {
   final String text;
   final TextStyle? style;
@@ -186,36 +189,74 @@ class MarqueeText extends StatefulWidget {
 
 class _MarqueeTextState extends State<MarqueeText> {
   final _ctrl = ScrollController();
+
+  /// Gap between the two copies in the seamless loop.
+  static const _gap = 48.0;
+
+  /// Pixels per second of the scroll, for a constant reading speed.
+  static const _pxPerSec = 60.0;
+
   bool _overflows = false;
+
+  /// Width of one text copy + gap: the loop scrolls exactly this far
+  /// then wraps to 0 (visually seamless because the content repeats).
+  double _loopWidth = 0;
+
+  /// Single-shot loop timer, cancelled in dispose so no Timer outlives
+  /// the widget (flutter_test fails on pending timers).
+  Timer? _timer;
+  bool _dead = false;
 
   @override
   void initState() {
     super.initState();
     // Wait a beat so layout settles, then loop the scroll.
-    unawaited(_loop());
+    _arm(const Duration(milliseconds: 800));
   }
 
-  Future<void> _loop() async {
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    while (mounted) {
-      await Future<void>.delayed(widget.pause);
-      if (!mounted || !_overflows || !_ctrl.hasClients) continue;
-      final max = _ctrl.position.maxScrollExtent;
-      if (max <= 0) continue;
-      await _ctrl.animateTo(max,
-          duration: Duration(milliseconds: (max * 18).round().clamp(800, 6000)),
-          curve: Curves.easeInOut);
-      if (!mounted) return;
-      await Future<void>.delayed(widget.pause);
-      if (!mounted || !_ctrl.hasClients) return;
-      await _ctrl.animateTo(0,
-          duration: Duration(milliseconds: (max * 18).round().clamp(800, 6000)),
-          curve: Curves.easeInOut);
+  @override
+  void didUpdateWidget(MarqueeText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Belt and braces (keys already recreate state per track): a new
+    // title must always begin at its first character, never at a stale
+    // scroll offset.
+    if (oldWidget.text != widget.text) {
+      if (_ctrl.hasClients) _ctrl.jumpTo(0);
+      _arm(widget.pause);
     }
+  }
+
+  void _arm(Duration delay) {
+    _timer?.cancel();
+    _timer = Timer(delay, _tick);
+  }
+
+  void _tick() {
+    if (_dead || !mounted) return;
+    if (!_overflows || !_ctrl.hasClients || _loopWidth <= 0) {
+      _arm(widget.pause); // not ready yet; re-check later
+      return;
+    }
+    final w = _loopWidth;
+    // Constant-speed forward scroll of exactly one copy, then a
+    // seamless wrap back to the start (full title visible from char 0).
+    _ctrl
+        .animateTo(w,
+            duration: Duration(
+                milliseconds:
+                    (w / _pxPerSec * 1000).round().clamp(1200, 12000)),
+            curve: Curves.linear)
+        .then((_) {
+      if (_dead || !mounted) return;
+      if (_ctrl.hasClients) _ctrl.jumpTo(0);
+      _arm(widget.pause);
+    });
   }
 
   @override
   void dispose() {
+    _dead = true;
+    _timer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
@@ -242,11 +283,20 @@ class _MarqueeTextState extends State<MarqueeText> {
               overflow: TextOverflow.ellipsis,
               style: widget.style);
         }
+        _loopWidth = tp.width + _gap;
+        // Duplicated text: scrolling one copy+gap and wrapping to 0 is
+        // invisible, giving an infinite loop of the FULL title.
         return SingleChildScrollView(
           controller: _ctrl,
           scrollDirection: Axis.horizontal,
           physics: const NeverScrollableScrollPhysics(),
-          child: Text(widget.text, maxLines: 1, style: widget.style),
+          child: Row(
+            children: [
+              Text(widget.text, maxLines: 1, style: widget.style),
+              const SizedBox(width: _gap),
+              Text(widget.text, maxLines: 1, style: widget.style),
+            ],
+          ),
         );
       },
     );
