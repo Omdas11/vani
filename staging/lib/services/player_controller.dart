@@ -16,6 +16,25 @@ import 'local_library.dart';
 import 'lyrics_api.dart';
 import 'stats_service.dart';
 
+/// Builds the [AudioPipeline] for the player. The equalizer is only
+/// attached when the platform has proven it implements the equalizer
+/// method channel — on devices where it throws UnimplementedError
+/// (e.g. androidEqualizerGetParameters not implemented behind the
+/// background player), the pipeline is built WITHOUT the effect so
+/// playback can never touch it. Pure function: unit-testable.
+AudioPipeline buildAudioPipeline(
+    {required bool eqSupported, required AndroidEqualizer equalizer}) {
+  return eqSupported
+      ? AudioPipeline(androidAudioEffects: [equalizer])
+      : AudioPipeline();
+}
+
+/// Detects the platform declining the equalizer: just_audio surfaces
+/// this as UnimplementedError mentioning the equalizer method.
+/// Pure function: unit-testable.
+bool isEqPlatformFailure(Object e) =>
+    e is UnimplementedError && e.toString().contains('Equalizer');
+
 /// Loop modes: 0 = off, 1 = repeat all, 2 = repeat one.
 class PlayerController extends ChangeNotifier {
   final ArchiveApi api = ArchiveApi();
@@ -23,11 +42,18 @@ class PlayerController extends ChangeNotifier {
   /// System equalizer (Android native AudioEffect, via just_audio's
   /// built-in AndroidEqualizer which forwards through the background
   /// player's platform channel). Disabled by default; driven by
-  /// EqualizerController once the platform connects.
+  /// EqualizerController once the platform connects. Only attached to
+  /// the player's AudioPipeline while [_eqSupported] — on devices where
+  /// the platform throws UnimplementedError for the equalizer, the
+  /// player is rebuilt WITHOUT it (see [_disableEqAndRebuildPlayer]),
+  /// so playback can never touch the effect.
   final AndroidEqualizer equalizer = AndroidEqualizer();
-  late final AudioPlayer _player = AudioPlayer(
-    audioPipeline: AudioPipeline(androidAudioEffects: [equalizer]),
-  );
+  late AudioPlayer _player;
+
+  /// False once the platform has proven it does not implement the
+  /// equalizer method channel. The player is then rebuilt with an
+  /// effect-free pipeline and the EQ UI is hidden.
+  bool _eqSupported = true;
 
   /// 5-band system equalizer (beta). Initialized fire-and-forget in
   /// [init]; check [EqualizerController.ready] before showing controls.
@@ -91,6 +117,24 @@ class PlayerController extends ChangeNotifier {
   final Map<String, double> downloadProgress = {};
 
   PlayerController() {
+    // Optimistic: most devices implement the equalizer channel. If the
+    // platform proves otherwise on first playback, the player is rebuilt
+    // without the effect (see _playCurrent's retry path).
+    _buildPlayer(withEq: true);
+  }
+
+  /// (Re)builds the underlying player and (re)attaches all stream
+  /// listeners. Used at startup and when shedding the equalizer after
+  /// the platform proves it unimplemented.
+  void _buildPlayer({required bool withEq}) {
+    _player = AudioPlayer(
+      audioPipeline:
+          buildAudioPipeline(eqSupported: withEq, equalizer: equalizer),
+    );
+    _attachPlayerListeners();
+  }
+
+  void _attachPlayerListeners() {
     _stateSub = _player.playerStateStream.listen(_onPlayerState);
     _posSub = _player.positionStream.listen((p) {
       position = p;
@@ -115,6 +159,29 @@ class PlayerController extends ChangeNotifier {
     });
   }
 
+  void _detachPlayerListeners() {
+    _stateSub?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
+    _indexSub?.cancel();
+    _playingSub?.cancel();
+    _stateSub = _posSub = _durSub = _indexSub = _playingSub = null;
+  }
+
+  /// Permanently disables the equalizer for this session: marks the
+  /// controller unsupported (hides EQ UI, stops init retries) and
+  /// rebuilds the player with an effect-free pipeline so the throwing
+  /// platform method is never called again.
+  Future<void> _disableEqAndRebuildPlayer() async {
+    _eqSupported = false;
+    eqc.markUnsupported();
+    _detachPlayerListeners();
+    try {
+      await _player.dispose();
+    } catch (_) {}
+    _buildPlayer(withEq: false);
+  }
+
   Future<void> init() async {
     await settings.load();
     await _loadPersisted();
@@ -124,11 +191,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _stateSub?.cancel();
-    _posSub?.cancel();
-    _durSub?.cancel();
-    _indexSub?.cancel();
-    _playingSub?.cancel();
+    _detachPlayerListeners();
     _player.dispose();
     super.dispose();
   }
@@ -253,27 +316,44 @@ class PlayerController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final url = await api
-          .resolveStreamUrl(track)
-          .timeout(const Duration(seconds: 45));
-      // A newer load superseded us: bail without touching shared state.
-      if (gen != _loadGen) return;
-      if (url == null) {
-        error = 'Could not load "${track.title}"';
-        return;
+      var attempt = 0;
+      while (true) {
+        attempt++;
+        try {
+          final url = await api
+              .resolveStreamUrl(track)
+              .timeout(const Duration(seconds: 45));
+          // A newer load superseded us: bail without touching shared state.
+          if (gen != _loadGen) return;
+          if (url == null) {
+            error = 'Could not load "${track.title}"';
+            return;
+          }
+          // Fresh single-track sequence around the current track; the rest of
+          // the queue is appended in the background by _fillSequence so the
+          // notification gains working next/previous buttons.
+          _seqPlayPos = [_orderPos];
+          _concat =
+              ConcatenatingAudioSource(children: [_taggedSource(track, url)]);
+          await _player
+              .setAudioSource(_concat!, initialIndex: 0)
+              .timeout(const Duration(seconds: 30));
+          if (gen != _loadGen) return;
+          _applyLoopMode();
+          _recordRecent(track);
+          await _player.play().timeout(const Duration(seconds: 15));
+          break; // success
+        } catch (e) {
+          // The platform declining the equalizer kills setAudioSource via
+          // just_audio's effect _activate. Shed the effect and retry once
+          // with an EQ-free player instead of failing playback entirely.
+          if (attempt == 1 && _eqSupported && isEqPlatformFailure(e)) {
+            await _disableEqAndRebuildPlayer();
+            continue;
+          }
+          rethrow;
+        }
       }
-      // Fresh single-track sequence around the current track; the rest of
-      // the queue is appended in the background by _fillSequence so the
-      // notification gains working next/previous buttons.
-      _seqPlayPos = [_orderPos];
-      _concat = ConcatenatingAudioSource(children: [_taggedSource(track, url)]);
-      await _player
-          .setAudioSource(_concat!, initialIndex: 0)
-          .timeout(const Duration(seconds: 30));
-      if (gen != _loadGen) return;
-      _applyLoopMode();
-      _recordRecent(track);
-      await _player.play().timeout(const Duration(seconds: 15));
     } on TimeoutException {
       error = 'Timed out loading "${track.title}" — check your connection';
     } catch (e) {

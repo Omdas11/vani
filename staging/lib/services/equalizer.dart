@@ -32,6 +32,14 @@ class EqualizerController extends ChangeNotifier {
   final AndroidEqualizer _eq;
 
   bool ready = false;
+
+  /// Whether the platform actually implements the equalizer method
+  /// channel. Set to false when the platform throws (notably
+  /// UnimplementedError from androidEqualizerGetParameters on devices
+  /// where the background player's channel doesn't implement it). When
+  /// false, the player is built WITHOUT the equalizer in its
+  /// AudioPipeline, so playback can never touch it.
+  bool supported = true;
   List<AndroidEqualizerBand> bands = const [];
   double minDb = -15;
   double maxDb = 15;
@@ -42,12 +50,23 @@ class EqualizerController extends ChangeNotifier {
 
   EqualizerController(this._eq);
 
+  /// Marks the equalizer as unsupported by this device's platform.
+  /// After this, [init] is a no-op and playback must be built without
+  /// the equalizer in the audio pipeline.
+  void markUnsupported() {
+    supported = false;
+    ready = false;
+    notifyListeners();
+  }
+
   /// Connects to the platform effect, restores saved settings and
   /// applies them. Retries while the player platform is still
   /// connecting; gives up gracefully (stays !ready) on devices where
-  /// the effect is unavailable.
+  /// the effect is unavailable. Returns immediately if the platform was
+  /// already proven unsupported (see [markUnsupported]).
   Future<void> init() async {
-    for (var attempt = 0; attempt < 15 && !ready; attempt++) {
+    if (!supported) return;
+    for (var attempt = 0; attempt < 15 && !ready && supported; attempt++) {
       try {
         final p = await _eq.parameters.timeout(
           const Duration(seconds: 2),
@@ -58,7 +77,14 @@ class EqualizerController extends ChangeNotifier {
           maxDb = p.maxDecibels;
           ready = true;
         }
-      } catch (_) {
+      } catch (e) {
+        // The platform explicitly declining to implement the equalizer
+        // is permanent, not transient: stop retrying and mark it.
+        if (e is UnimplementedError &&
+            e.toString().contains('Equalizer')) {
+          markUnsupported();
+          return;
+        }
         await Future<void>.delayed(const Duration(seconds: 1));
       }
     }

@@ -72,6 +72,32 @@ class EqualizerScreen extends StatelessWidget {
   }
 
   Widget _notReady(BuildContext context, EqualizerController eqc) {
+    // The platform proved it does not implement the equalizer: say so
+    // instead of spinning forever.
+    if (!eqc.supported) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.equalizer_outlined, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'Equalizer not available',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Your device does not expose a system equalizer to apps. '
+                'Music plays normally without it.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
