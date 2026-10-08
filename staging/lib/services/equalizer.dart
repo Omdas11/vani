@@ -38,6 +38,16 @@ class EqualizerController extends ChangeNotifier {
     }
   }
 
+  /// Persists the unsupported verdict. AWAITED by callers: the old
+  /// fire-and-forget write could be lost if the app died, re-triggering
+  /// the failure discovery on every launch.
+  static Future<void> persistUnsupported(bool unsupported) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kUnsupportedKey, unsupported);
+    } catch (_) {}
+  }
+
   static const List<String> presets = [
     'Normal',
     'Bass Boost',
@@ -69,18 +79,14 @@ class EqualizerController extends ChangeNotifier {
 
   /// Marks the equalizer as unsupported by this device's platform.
   /// After this, [init] is a no-op and playback must be built without
-  /// the equalizer in the audio pipeline. The verdict is persisted so
-  /// future launches never attach the effect (or probe for it) again.
-  void markUnsupported() {
+  /// the equalizer in the audio pipeline. The verdict is persisted
+  /// (awaited — a lost write would re-trigger failure discovery every
+  /// launch) so future launches never attach the effect (or probe for
+  /// it) again.
+  Future<void> markUnsupported() async {
     supported = false;
     ready = false;
-    // Persist fire-and-forget; storage failures must never surface.
-    () async {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(kUnsupportedKey, true);
-      } catch (_) {}
-    }();
+    await persistUnsupported(true);
     notifyListeners();
   }
 
@@ -102,7 +108,7 @@ class EqualizerController extends ChangeNotifier {
     // equalizer: don't probe again, just stay unavailable.
     final persisted = await loadPersistedUnsupported();
     if (persisted == true) {
-      markUnsupported();
+      await markUnsupported();
       return;
     }
     _probing = true;
@@ -127,7 +133,7 @@ class EqualizerController extends ChangeNotifier {
           // is permanent, not transient: stop retrying and mark it.
           if (e is UnimplementedError &&
               e.toString().contains('Equalizer')) {
-            markUnsupported();
+            await markUnsupported();
             return;
           }
           // Don't oversleep past the deadline.
@@ -147,7 +153,7 @@ class EqualizerController extends ChangeNotifier {
       } else if (supported) {
         // Timed out without the platform ever exposing the effect:
         // treat as unavailable rather than spinning forever.
-        markUnsupported();
+        await markUnsupported();
       }
     } finally {
       _probing = false;

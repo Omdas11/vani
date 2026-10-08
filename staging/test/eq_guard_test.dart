@@ -64,7 +64,7 @@ void main() {
     test('markUnsupported flips flags; init() returns immediately',
         () async {
       final c = EqualizerController(_ThrowingEqualizer());
-      c.markUnsupported();
+      await c.markUnsupported();
       expect(c.supported, isFalse);
       expect(c.ready, isFalse);
       // Must not throw, hang, or retry: the platform already declined.
@@ -76,7 +76,7 @@ void main() {
     test('mutators never touch the platform when unsupported', () async {
       SharedPreferences.setMockInitialValues({});
       final c = EqualizerController(_ThrowingEqualizer());
-      c.markUnsupported();
+      await c.markUnsupported();
       await c.setEnabled(true);
       await c.applyPreset('Bass Boost');
       await c.setBandGain(0, 5.0);

@@ -275,12 +275,26 @@ class _MainShellState extends State<MainShell> {
                     child:
                         AppBackground(animated: settings.animatedBackground),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 188),
-                    child: IndexedStack(
-                      index: tabIndex,
-                      children: [for (final id in order) _pageFor(id)],
-                    ),
+                  // Content reserves room for the bottom stack. The mini
+                  // player takes ZERO space when hidden (no weird blank
+                  // gap): the padding animates between dock-only and
+                  // dock+mini-player heights as playback starts/stops.
+                  AnimatedBuilder(
+                    animation: widget.pc,
+                    builder: (_, __) {
+                      final miniVisible =
+                          widget.pc.currentTrack != null;
+                      return AnimatedPadding(
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOutCubic,
+                        padding: EdgeInsets.only(
+                            bottom: miniVisible ? 188 : 100),
+                        child: IndexedStack(
+                          index: tabIndex,
+                          children: [for (final id in order) _pageFor(id)],
+                        ),
+                      );
+                    },
                   ),
                   Positioned(
                     left: 0,
@@ -292,15 +306,51 @@ class _MainShellState extends State<MainShell> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Floating mini-player card (PixelPlayer pattern).
+                          // Dynamically appears: zero space when hidden,
+                          // slides+fades in on playback, collapses away on
+                          // stop. The exiting card keeps its stale track
+                          // (inert) so the collapse animates smoothly
+                          // instead of popping.
                           AnimatedBuilder(
                             animation: widget.pc,
-                            builder: (_, __) => Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12),
-                              child: MiniPlayer(pc: widget.pc),
-                            ),
+                            builder: (_, __) {
+                              final track = widget.pc.currentTrack;
+                              return AnimatedSwitcher(
+                                duration:
+                                    const Duration(milliseconds: 260),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) =>
+                                    SizeTransition(
+                                  sizeFactor: animation,
+                                  // Collapse toward the dock.
+                                  alignment: Alignment.bottomCenter,
+                                  child: FadeTransition(
+                                    opacity: animation,
+                                    child: SlideTransition(
+                                      position: Tween(
+                                        begin: const Offset(0, 0.45),
+                                        end: Offset.zero,
+                                      ).animate(animation),
+                                      child: child,
+                                    ),
+                                  ),
+                                ),
+                                child: track != null
+                                    ? Padding(
+                                        key: const ValueKey('mini-on'),
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 0, 12, 8),
+                                        child: MiniPlayer(
+                                          pc: widget.pc,
+                                          displayTrack: track,
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(
+                                        key: ValueKey('mini-off')),
+                              );
+                            },
                           ),
-                          const SizedBox(height: 8),
                           // Floating editable dock (M3 Expressive tonal pill
                           // dock with sliding active indicator).
                           Padding(

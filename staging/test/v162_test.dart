@@ -118,9 +118,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final c = EqualizerController(_NeverUsedEqualizer());
       expect(await EqualizerController.loadPersistedUnsupported(), isNull);
-      c.markUnsupported();
-      // markUnsupported persists fire-and-forget; let it land.
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await c.markUnsupported();
       expect(await EqualizerController.loadPersistedUnsupported(), isTrue);
     });
 

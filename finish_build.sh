@@ -9,6 +9,8 @@ echo "=== installing staged source ==="
 cp ~/workspace/opentune/staging/pubspec.yaml pubspec.yaml
 rm -rf lib
 cp -r ~/workspace/opentune/staging/lib lib
+mkdir -p assets
+cp -r ~/workspace/opentune/staging/assets/. assets/
 
 echo "=== patching AndroidManifest.xml (permissions) ==="
 MANIFEST=android/app/src/main/AndroidManifest.xml

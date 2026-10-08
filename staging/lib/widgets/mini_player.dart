@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/track.dart';
 import '../screens/player_screen.dart';
 import '../services/artwork_colors.dart';
 import '../services/player_controller.dart';
@@ -17,7 +18,14 @@ import 'track_art.dart';
 /// → stop playback entirely and dismiss the player.
 class MiniPlayer extends StatefulWidget {
   final PlayerController pc;
-  const MiniPlayer({super.key, required this.pc});
+
+  /// Explicit track to render. When set (e.g. by the shell's exit
+  /// animation after the queue was cleared), the card keeps showing this
+  /// track even though [PlayerController.currentTrack] is already null —
+  /// but all interactions are disabled then.
+  final Track? displayTrack;
+
+  const MiniPlayer({super.key, required this.pc, this.displayTrack});
 
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
@@ -128,8 +136,12 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   @override
   Widget build(BuildContext context) {
-    final track = pc.currentTrack;
+    final track = widget.displayTrack ?? pc.currentTrack;
     if (track == null) return const SizedBox.shrink();
+    // Interactions only make sense while the track is actually loaded.
+    // During the shell's exit animation displayTrack holds a stale track
+    // with an empty queue: the card is visible but inert.
+    final live = pc.currentTrack != null;
     // After a swipe-down dismiss the state object survives (same widget
     // slot); reset the dismiss transforms for the next appearance.
     if (_dismissed) {
@@ -157,58 +169,69 @@ class _MiniPlayerState extends State<MiniPlayer>
             dur > 0 ? (pos / dur).clamp(0.0, 1.0) : 0.0;
 
         return GestureDetector(
-          onTap: () => _open(context),
+          onTap: live ? () => _open(context) : null,
           // Vertical: swipe up opens Now Playing; a deliberate swipe
           // down (fast fling AND real distance) stops everything.
           // The card follows the finger so the dismiss feels physical.
-          onVerticalDragUpdate: (d) {
-            _dragDy += d.delta.dy;
-            final dy =
-                (_dragOffset.dy + d.delta.dy).clamp(-72.0, 150.0);
-            setState(() {
-              _dragOffset = Offset(_dragOffset.dx, dy);
-              _dragOpacity =
-                  1.0 - (dy.clamp(0.0, 150.0) / 150.0) * 0.45;
-            });
-          },
-          onVerticalDragEnd: (d) {
-            final v = d.primaryVelocity ?? 0;
-            final dy = _dragDy;
-            _dragDy = 0.0;
-            if (v < -350) {
-              _springBack();
-              _open(context);
-            } else if (v > _stopFlingVelocity &&
-                dy > _stopDragDistance) {
-              _dismissAndStop();
-            } else {
-              _springBack();
-            }
-          },
-          onVerticalDragCancel: () {
-            _dragDy = 0.0;
-            _springBack();
-          },
+          onVerticalDragUpdate: live
+              ? (d) {
+                  _dragDy += d.delta.dy;
+                  final dy =
+                      (_dragOffset.dy + d.delta.dy).clamp(-72.0, 150.0);
+                  setState(() {
+                    _dragOffset = Offset(_dragOffset.dx, dy);
+                    _dragOpacity =
+                        1.0 - (dy.clamp(0.0, 150.0) / 150.0) * 0.45;
+                  });
+                }
+              : null,
+          onVerticalDragEnd: live
+              ? (d) {
+                  final v = d.primaryVelocity ?? 0;
+                  final dy = _dragDy;
+                  _dragDy = 0.0;
+                  if (v < -350) {
+                    _springBack();
+                    _open(context);
+                  } else if (v > _stopFlingVelocity &&
+                      dy > _stopDragDistance) {
+                    _dismissAndStop();
+                  } else {
+                    _springBack();
+                  }
+                }
+              : null,
+          onVerticalDragCancel: live
+              ? () {
+                  _dragDy = 0.0;
+                  _springBack();
+                }
+              : null,
           // Horizontal: fling left → next, fling right → previous,
           // with a tactile nudge in the fling direction.
-          onHorizontalDragUpdate: (d) {
-            final dx =
-                (_dragOffset.dx + d.delta.dx).clamp(-72.0, 72.0);
-            setState(() => _dragOffset = Offset(dx, _dragOffset.dy));
-          },
-          onHorizontalDragEnd: (d) {
-            final v = d.primaryVelocity ?? 0;
-            if (v < -600) {
-              _nudge(const Offset(-36, 0));
-              pc.next();
-            } else if (v > 600) {
-              _nudge(const Offset(36, 0));
-              pc.previous();
-            } else {
-              _springBack();
-            }
-          },
-          onHorizontalDragCancel: _springBack,
+          onHorizontalDragUpdate: live
+              ? (d) {
+                  final dx =
+                      (_dragOffset.dx + d.delta.dx).clamp(-72.0, 72.0);
+                  setState(
+                      () => _dragOffset = Offset(dx, _dragOffset.dy));
+                }
+              : null,
+          onHorizontalDragEnd: live
+              ? (d) {
+                  final v = d.primaryVelocity ?? 0;
+                  if (v < -600) {
+                    _nudge(const Offset(-36, 0));
+                    pc.next();
+                  } else if (v > 600) {
+                    _nudge(const Offset(36, 0));
+                    pc.previous();
+                  } else {
+                    _springBack();
+                  }
+                }
+              : null,
+          onHorizontalDragCancel: live ? _springBack : null,
           child: Transform.translate(
             offset: _visualOffset,
             child: Opacity(
@@ -273,7 +296,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                         backgroundColor: onTint.withValues(alpha: 0.16),
                         foregroundColor: onTint,
                         tooltip: 'Previous',
-                        onPressed: pc.previous,
+                        onPressed: live ? pc.previous : null,
                       ),
                       const SizedBox(width: 4),
                       // Spinner only while genuinely loading (never while
@@ -298,7 +321,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                           backgroundColor: onTint.withValues(alpha: 0.16),
                           foregroundColor: onTint,
                           tooltip: pc.isPlaying ? 'Pause' : 'Play',
-                          onPressed: pc.togglePlayPause,
+                          onPressed: live ? pc.togglePlayPause : null,
                         ),
                       const SizedBox(width: 4),
                       TonalIconButton(
@@ -308,7 +331,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                         backgroundColor: onTint.withValues(alpha: 0.16),
                         foregroundColor: onTint,
                         tooltip: 'Next',
-                        onPressed: pc.next,
+                        onPressed: live ? pc.next : null,
                       ),
                       const SizedBox(width: 10),
                     ],

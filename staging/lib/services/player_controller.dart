@@ -36,6 +36,91 @@ AudioPipeline buildAudioPipeline(
 bool isEqPlatformFailure(Object e) =>
     e is UnimplementedError && e.toString().contains('Equalizer');
 
+/// How a guarded platform activation settled.
+enum ActivationOutcome {
+  /// The load completed without the equalizer refusing.
+  ok,
+
+  /// The platform declined the equalizer (UnimplementedError), however
+  /// it surfaced — through the awaited future or as uncaught async.
+  eqRefused,
+
+  /// No EQ refusal was observed, but the load didn't complete either
+  /// (watchdog timeout or an ambiguous failure).
+  failed,
+}
+
+/// Runs [load] (a setAudioSource call) while capturing the equalizer
+/// platform refusal NO MATTER HOW it surfaces. Why this exists: in
+/// just_audio 0.9.46 the effect `_activate` loop sits OUTSIDE the
+/// try/catch in `AudioPlayer._setPlatformActive.setPlatform`
+/// (just_audio.dart ~1514), so on devices where the platform declines
+/// the equalizer the UnimplementedError escapes via the orphaned
+/// `_platform` future — it NEVER reaches a try/catch around the
+/// awaited setAudioSource (which instead hangs forever), and arrives
+/// as an uncaught async error. Awaiting `equalizer.parameters` can't
+/// detect it either: that future only completes inside `_activate`
+/// itself (just_audio.dart ~3989), so a startup probe of it always
+/// times out. The zone handler is the only reliable net.
+///
+/// Non-EQ uncaught errors are forwarded to the parent zone unchanged,
+/// preserving old behavior. Non-EQ direct errors are rethrown with
+/// their stack trace.
+@visibleForTesting
+Future<ActivationOutcome> guardedActivate(
+  Future<void> Function() load, {
+  Duration watchdog = const Duration(seconds: 30),
+}) async {
+  Object? directError;
+  StackTrace? directStack;
+  final outcomeSignal = Completer<String>();
+  void finish(String v) {
+    if (!outcomeSignal.isCompleted) outcomeSignal.complete(v);
+  }
+  // The caller's zone, captured for faithful error forwarding below.
+  final Zone callerZone = Zone.current;
+  // The returned future is intentionally not awaited here: completion is
+  // observed through outcomeSignal (done/eq/timeout race below).
+  unawaited(runZonedGuarded<Future<void>>(() async {
+    try {
+      await load();
+    } catch (e, s) {
+      directError = e;
+      directStack = s;
+    } finally {
+      finish('done');
+    }
+  }, (Object e, StackTrace s) {
+    if (isEqPlatformFailure(e)) {
+      finish('eq');
+    } else {
+      // Not ours: surface as uncaught in the CALLER's zone so the
+      // enclosing error handler sees exactly what it would have seen
+      // without this guard. (Calling parent.handleUncaughtError does
+      // NOT reach the parent's handler — verified empirically.)
+      callerZone.run(() {
+        // ignore: unawaited_futures
+        Future<void>.error(e, s);
+      });
+    }
+  }));
+  final outcome = await Future.any<String>([
+    outcomeSignal.future,
+    Future<String>.delayed(watchdog, () => 'timeout'),
+  ]);
+  if (outcome == 'eq' ||
+      (directError != null && isEqPlatformFailure(directError!))) {
+    return ActivationOutcome.eqRefused;
+  }
+  if (directError != null) {
+    Error.throwWithStackTrace(
+        directError!, directStack ?? StackTrace.empty);
+  }
+  return outcome == 'done'
+      ? ActivationOutcome.ok
+      : ActivationOutcome.failed;
+}
+
 /// Loop modes: 0 = off, 1 = repeat all, 2 = repeat one.
 class PlayerController extends ChangeNotifier {
   final ArchiveApi api = ArchiveApi();
@@ -180,13 +265,12 @@ class PlayerController extends ChangeNotifier {
 
   /// Permanently disables the equalizer for this session: marks the
   /// controller unsupported (hides EQ UI, stops init retries, persists
-  /// the verdict) and rebuilds the player with an effect-free pipeline
-  /// so the throwing platform method is never called again.
-  /// Last-resort safety net only: [init] now resolves EQ support at
-  /// startup, before any playback, so this path should never fire.
+  /// the verdict — awaited so it can't be lost) and rebuilds the player
+  /// with an effect-free pipeline so the throwing platform method is
+  /// never called again.
   Future<void> _disableEqAndRebuildPlayer() async {
     _eqSupported = false;
-    eqc.markUnsupported();
+    await eqc.markUnsupported();
     _detachPlayerListeners();
     try {
       await _player.dispose();
@@ -207,52 +291,80 @@ class PlayerController extends ChangeNotifier {
   /// here, while the native session is still idle, makes the single
   /// rebuild (if needed) completely clean: idle->idle never triggers
   /// the native stop path.
+  ///
+  /// v1.6.6: the old implementation probed `equalizer.parameters`, but
+  /// that future can ONLY complete inside `AndroidEqualizer._activate`
+  /// (just_audio.dart), which runs solely during setAudioSource — so
+  /// the probe always timed out ("ambiguous") and the real failure
+  /// still hit first playback, escaping as uncaught async (the
+  /// `_activate` loop sits outside just_audio's try/catch, so the
+  /// awaited setAudioSource hangs instead of throwing). This version
+  /// exercises the GENUINE activation path with a sacrificial player
+  /// and a silent asset, capturing the refusal via [guardedActivate]
+  /// however it surfaces. The verdict is persisted (awaited) so it
+  /// runs once per install.
   Future<void> _resolveEqSupport() async {
     final persisted = await EqualizerController.loadPersistedUnsupported();
     if (persisted == true) {
       // This device already proved the equalizer unimplemented: never
-      // attach the effect, and shed it from the optimistic startup
-      // player while the native session is still idle.
-      DebugLog.logNow('eq', 'verdict: unsupported (persisted) — player rebuilt effect-free');
-      await _setEqSupported(false);
+      // attach the effect. The main player is still idle (built in the
+      // constructor, never activated), so shedding here is clean.
+      DebugLog.logNow(
+          'eq', 'verdict: unsupported (persisted) — player rebuilt effect-free');
+      await _disableEqAndRebuildPlayer();
       return;
     }
-    // First launch (or previously fine): probe the live player with a
-    // tight budget. A definitive platform refusal rebuilds once here;
-    // ambiguity keeps the optimistic player and the playback-path guard
-    // remains as a last resort.
-    for (var attempt = 0; attempt < 3; attempt++) {
-      try {
-        await equalizer.parameters.timeout(const Duration(milliseconds: 800));
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool(EqualizerController.kUnsupportedKey, false);
-        } catch (_) {}
-        DebugLog.logNow('eq', 'verdict: supported (probe attempt ${attempt + 1})');
-        return; // supported
-      } catch (e) {
-        if (isEqPlatformFailure(e)) {
-          DebugLog.logNow('eq', 'verdict: unsupported (platform failure: $e)');
-          await _setEqSupported(false); // persists via markUnsupported
-          return;
-        }
-        // Timeout / not-yet-connected: retry briefly.
-      }
+    if (persisted == false) {
+      DebugLog.logNow('eq', 'verdict: supported (persisted)');
+      return;
     }
-    DebugLog.logNow('eq', 'verdict: ambiguous after 3 probes — keeping optimistic player');
+    DebugLog.logNow('eq', 'probing via genuine activation path…');
+    ActivationOutcome verdict;
+    try {
+      verdict = await _probeEqViaActivation();
+    } catch (e) {
+      // The probe itself must never break startup: treat anything
+      // unexpected as ambiguous (keep the optimistic player; the
+      // playback-path guard remains as a last resort).
+      DebugLog.logNow('eq', 'probe error (ambiguous): $e');
+      verdict = ActivationOutcome.failed;
+    }
+    if (verdict == ActivationOutcome.eqRefused) {
+      DebugLog.logNow('eq', 'verdict: unsupported (activation refused)');
+      await _disableEqAndRebuildPlayer();
+    } else {
+      DebugLog.logNow(
+          'eq', 'verdict: ${verdict.name} — keeping equalizer attached');
+      // Persist even the ambiguous verdict: re-probing every launch
+      // would stall startup, and the playback-path guard catches a real
+      // refusal if this device was misjudged.
+      await EqualizerController.persistUnsupported(false);
+    }
   }
 
-  /// One-time effect shed at startup. Must only run before playback
-  /// begins (see [_resolveEqSupport]).
-  Future<void> _setEqSupported(bool supported) async {
-    eqc.markUnsupported(); // persists the verdict; idempotent
-    if (_eqSupported == supported) return;
-    _eqSupported = supported;
-    _detachPlayerListeners();
+  /// Exercises the genuine equalizer activation path with a sacrificial
+  /// player (the background plugin allows a single player instance, so
+  /// the probe runs before the main player is ever activated, then the
+  /// probe player is disposed). Uses the REAL [equalizer] object: on a
+  /// successful activation its parameters future completes, which the
+  /// EQ screen depends on. The silent asset only needs to exist — the
+  /// refusal, when it happens, fires in `_activate` before any loading.
+  Future<ActivationOutcome> _probeEqViaActivation() async {
+    final probe = AudioPlayer(
+      audioPipeline: AudioPipeline(androidAudioEffects: [equalizer]),
+    );
     try {
-      await _player.dispose();
-    } catch (_) {}
-    _buildPlayer(withEq: supported);
+      return await guardedActivate(
+        () => probe.setAudioSource(
+          AudioSource.asset('assets/silence.wav'),
+        ),
+        watchdog: const Duration(seconds: 8),
+      );
+    } finally {
+      try {
+        await probe.dispose();
+      } catch (_) {}
+    }
   }
 
   Future<void> init() async {
@@ -416,18 +528,34 @@ class PlayerController extends ChangeNotifier {
           _seqPlayPos = [_orderPos];
           _concat =
               ConcatenatingAudioSource(children: [_taggedSource(track, url)]);
-          await _player
-              .setAudioSource(_concat!, initialIndex: 0)
-              .timeout(const Duration(seconds: 30));
+          // Guarded: on devices where the platform declines the equalizer,
+          // just_audio lets the UnimplementedError escape as uncaught async
+          // (its _activate loop is outside its try/catch) and the awaited
+          // load hangs instead of throwing. guardedActivate catches the
+          // refusal however it surfaces; the watchdog bounds the hang.
+          final activation = await guardedActivate(
+            () => _player.setAudioSource(_concat!, initialIndex: 0),
+            watchdog: const Duration(seconds: 30),
+          );
+          if (activation == ActivationOutcome.eqRefused &&
+              attempt == 1 &&
+              _eqSupported) {
+            // Shed the effect and retry once with an EQ-free player
+            // instead of failing playback entirely.
+            await _disableEqAndRebuildPlayer();
+            continue;
+          }
+          if (activation == ActivationOutcome.failed) {
+            throw TimeoutException('Timed out loading "${track.title}"');
+          }
           if (gen != _loadGen) return;
           _applyLoopMode();
           _recordRecent(track);
           await _player.play().timeout(const Duration(seconds: 15));
           break; // success
         } catch (e) {
-          // The platform declining the equalizer kills setAudioSource via
-          // just_audio's effect _activate. Shed the effect and retry once
-          // with an EQ-free player instead of failing playback entirely.
+          // Direct-path refusal (or a refusal the zone already saw — the
+          // guarded branch above handles the common case first).
           if (attempt == 1 && _eqSupported && isEqPlatformFailure(e)) {
             await _disableEqAndRebuildPlayer();
             continue;
