@@ -69,8 +69,11 @@ class DisplayHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Respect the status bar / notch: without this the header underlaps
+    // the system padding on phones with a notch (bug report v1.6.0).
+    final topInset = MediaQuery.of(context).padding.top;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+      padding: EdgeInsets.fromLTRB(20, 16 + topInset, 16, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [

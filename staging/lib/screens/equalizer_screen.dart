@@ -93,6 +93,11 @@ class EqualizerScreen extends StatelessWidget {
                 'Music plays normally without it.',
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 20),
+              FilledButton.tonal(
+                onPressed: () => eqc.retry(),
+                child: const Text('Try again'),
+              ),
             ],
           ),
         ),
@@ -112,8 +117,9 @@ class EqualizerScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'If this never finishes, your device does not expose a '
-              'system equalizer to apps.',
+              'Probing your device\u2019s audio engine (takes a few '
+              'seconds). If the equalizer isn\u2019t available, you\u2019ll '
+              'see a message instead of this spinner.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),

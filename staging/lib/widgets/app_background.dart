@@ -86,15 +86,17 @@ class _AppBackgroundState extends State<AppBackground>
             ),
             child: Stack(
               children: [
-                Positioned(
-                  right: -90,
-                  top: 120,
+                // Veena watermark: scaled down and fully on-screen
+                // (bug report v1.6.0 — the old 340px art bled off the
+                // right edge and looked cropped). Subtle by design.
+                Align(
+                  alignment: const Alignment(0.45, -0.1),
                   child: Opacity(
-                    opacity: 0.055,
+                    opacity: 0.06,
                     child: Image.asset(
                       'assets/veena_watermark.webp',
-                      width: 340,
-                      height: 340,
+                      width: 200,
+                      height: 200,
                       fit: BoxFit.contain,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),

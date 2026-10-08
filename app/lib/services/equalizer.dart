@@ -59,41 +59,80 @@ class EqualizerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _probing = false;
+
   /// Connects to the platform effect, restores saved settings and
-  /// applies them. Retries while the player platform is still
-  /// connecting; gives up gracefully (stays !ready) on devices where
-  /// the effect is unavailable. Returns immediately if the platform was
-  /// already proven unsupported (see [markUnsupported]).
-  Future<void> init() async {
-    if (!supported) return;
-    for (var attempt = 0; attempt < 15 && !ready && supported; attempt++) {
-      try {
-        final p = await _eq.parameters.timeout(
-          const Duration(seconds: 2),
-        );
-        if (p.bands.isNotEmpty) {
-          bands = p.bands;
-          minDb = p.minDecibels;
-          maxDb = p.maxDecibels;
-          ready = true;
+  /// applies them. The probe is BOUNDED (see [probeBudget], default 8s):
+  /// past the deadline the equalizer is marked unsupported so the EQ
+  /// screen shows its "not available" state instead of spinning forever
+  /// (bug report v1.6.0 — some devices never answer the probe).
+  /// Retries while the player platform is still connecting; gives up
+  /// gracefully (stays !ready) on devices where the effect is
+  /// unavailable. Returns immediately if the platform was already
+  /// proven unsupported (see [markUnsupported]).
+  Future<void> init(
+      {Duration probeBudget = const Duration(seconds: 8)}) async {
+    if (!supported || _probing) return;
+    _probing = true;
+    try {
+      final deadline = DateTime.now().add(probeBudget);
+      while (supported && !ready && DateTime.now().isBefore(deadline)) {
+        try {
+          final left = deadline.difference(DateTime.now());
+          final p = await _eq.parameters.timeout(
+            left < const Duration(seconds: 2)
+                ? left
+                : const Duration(seconds: 2),
+          );
+          if (p.bands.isNotEmpty) {
+            bands = p.bands;
+            minDb = p.minDecibels;
+            maxDb = p.maxDecibels;
+            ready = true;
+          }
+        } catch (e) {
+          // The platform explicitly declining to implement the equalizer
+          // is permanent, not transient: stop retrying and mark it.
+          if (e is UnimplementedError &&
+              e.toString().contains('Equalizer')) {
+            markUnsupported();
+            return;
+          }
+          // Don't oversleep past the deadline.
+          final left = deadline.difference(DateTime.now());
+          if (left <= Duration.zero) break;
+          await Future<void>.delayed(
+            left < const Duration(seconds: 1)
+                ? left
+                : const Duration(seconds: 1),
+          );
         }
-      } catch (e) {
-        // The platform explicitly declining to implement the equalizer
-        // is permanent, not transient: stop retrying and mark it.
-        if (e is UnimplementedError &&
-            e.toString().contains('Equalizer')) {
-          markUnsupported();
-          return;
-        }
-        await Future<void>.delayed(const Duration(seconds: 1));
       }
-    }
-    if (ready) {
-      gains.addAll(List.filled(bands.length, 0.0));
-      await _restore();
-      await _applyAll();
+      if (ready) {
+        gains.addAll(List.filled(bands.length, 0.0));
+        await _restore();
+        await _applyAll();
+      } else if (supported) {
+        // Timed out without the platform ever exposing the effect:
+        // treat as unavailable rather than spinning forever.
+        markUnsupported();
+      }
+    } finally {
+      _probing = false;
     }
     notifyListeners();
+  }
+
+  /// Re-run the bounded probe after a timeout or platform failure
+  /// (e.g. from the EQ screen's "Try again" button). No-op while a
+  /// probe is already running.
+  Future<void> retry({Duration? probeBudget}) async {
+    if (_probing) return;
+    supported = true;
+    ready = false;
+    notifyListeners();
+    await init(
+        probeBudget: probeBudget ?? const Duration(seconds: 8));
   }
 
   Future<void> _restore() async {

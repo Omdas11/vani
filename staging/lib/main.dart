@@ -9,7 +9,7 @@ import 'services/app_settings.dart';
 import 'services/player_controller.dart';
 import 'services/vani_theme.dart';
 import 'widgets/app_background.dart';
-import 'widgets/glass_panel.dart';
+import 'widgets/floating_dock.dart';
 import 'widgets/mini_player.dart';
 
 Future<void> main() async {
@@ -182,11 +182,12 @@ class _MainShellState extends State<MainShell> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      // Floating editable dock.
+                      // Floating editable dock (M3 Expressive tonal pill
+                      // dock with sliding active indicator).
                       Padding(
                         padding:
                             const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                        child: _FloatingDock(
+                        child: FloatingDock(
                           destinations: visible,
                           currentId: _tabId,
                           onSelect: (id) =>
@@ -205,45 +206,3 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-/// Detached tonal pill navigation dock in Material 3 Expressive styling,
-/// wrapped in real glass. The visible destinations and their order come
-/// from Settings → Navigation (item 6); M3 pill indicator on the active
-/// destination, labels on the active item only.
-class _FloatingDock extends StatelessWidget {
-  final List<NavDestination> destinations;
-  final String currentId;
-  final ValueChanged<String> onSelect;
-  const _FloatingDock({
-    required this.destinations,
-    required this.currentId,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final index =
-        destinations.indexWhere((d) => d.id == currentId).clamp(0, 4);
-    return GlassPanel(
-      radius: 28,
-      padding: EdgeInsets.zero,
-      tintAlpha: 0.14,
-      child: NavigationBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        height: 70,
-        labelBehavior:
-            NavigationDestinationLabelBehavior.onlyShowSelected,
-        selectedIndex: index,
-        onDestinationSelected: (i) => onSelect(destinations[i].id),
-        destinations: [
-          for (final d in destinations)
-            NavigationDestination(
-              icon: Icon(d.icon),
-              selectedIcon: Icon(d.selectedIcon),
-              label: d.label,
-            ),
-        ],
-      ),
-    );
-  }
-}
