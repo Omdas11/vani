@@ -125,6 +125,13 @@ class PlayerController extends ChangeNotifier {
     _buildPlayer(withEq: true);
   }
 
+  /// Testing seam (v1.6.3): constructs the controller WITHOUT building
+  /// the underlying [AudioPlayer], which needs a real device's platform
+  /// channels. Widget tests drive playback state through overrides of
+  /// [currentTrack]/[playTracks]. Never use in production.
+  @visibleForTesting
+  PlayerController.test();
+
   /// (Re)builds the underlying player and (re)attaches all stream
   /// listeners. Used at startup and when shedding the equalizer after
   /// the platform proves it unimplemented.

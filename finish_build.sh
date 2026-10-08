@@ -30,11 +30,11 @@ else:
     print('permissions already present')
 EOF
 
-echo "=== patching app/build.gradle.kts (minSdk 23, app id) ==="
+echo "=== patching app/build.gradle.kts (minSdk 29, app id) ==="
 GRADLE=android/app/build.gradle.kts
 if [ -f "$GRADLE" ]; then
-  # Task spec: minSdk 23, applicationId com.opentune.app
-  sed -i -E 's/minSdk\s*=\s*flutter\.minSdkVersion/minSdk = 23/; s/minSdkVersion\s+[0-9]+/minSdkVersion 23/; s/minSdk = 26/minSdk = 23/' "$GRADLE"
+  # Task spec: minSdk 29 (Android 10+), applicationId com.opentune.app
+  sed -i -E 's/minSdk\s*=\s*flutter\.minSdkVersion/minSdk = 29/; s/minSdkVersion\s+[0-9]+/minSdkVersion 29/; s/minSdk = 23/minSdk = 29/; s/minSdk = 26/minSdk = 29/' "$GRADLE"
   grep -n "minSdk" "$GRADLE" | head -3
 else
   echo "NOTE: $GRADLE not found (Groovy build.gradle?)"

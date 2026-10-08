@@ -201,6 +201,18 @@ Notes:
   installed), `just_audio`/`audio_session` `compileSdk 34 → 36`, and
   `file_picker` `compileSdk 34 → 36` (its `flutter_plugin_android_lifecycle`
   dep requires 36).
+- Notification hardening patch in the `.pub_pkgs` mirror (re-apply if you
+  re-mirror from scratch): `audio_service` `AudioService.java`
+  `getNotificationBuilder()` sets
+  `.setCategory(NotificationCompat.CATEGORY_TRANSPORT)` so OEM skins
+  (e.g. Motorola's Android 12) treat the notification as media transport
+  instead of degrading it to a metadata-only shade entry with no buttons.
+  (Same class of fix as senkjm/webdav_media_manager's vendored
+  audio_service 0.18.19 PATCHES.md: channel importance + transport
+  category for OEM shade rendering.) The channel-importance half of that
+  fix lives app-side in `MainActivity.ensureAudioChannel()`, which
+  pre-creates `com.opentune.app.channel.audio` at IMPORTANCE_DEFAULT and
+  deletes the stale IMPORTANCE_LOW channel from earlier installs.
 - **Proxy CA rotation:** if Gradle/Java HTTPS suddenly fails with
   `PKIX ... signature check failed` while curl works, the egress proxy's
   MITM CA has rotated again — re-import the current CA into
@@ -210,7 +222,7 @@ Notes:
   be lost.
 - `lib/` in `app/` is generated from `../staging/lib/` (plus `test/`);
   treat `staging/` as the source of truth.
-- `minSdk 23`, `compileSdk/targetSdk 36`, `applicationId com.opentune.app`.
+- `minSdk 29` (Android 10+), `compileSdk/targetSdk 36`, `applicationId com.opentune.app`.
 
 ## What's untested / known gaps
 

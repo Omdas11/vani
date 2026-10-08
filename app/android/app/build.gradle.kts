@@ -19,7 +19,11 @@ android {
         applicationId = "com.opentune.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // Vani supports Android 10+ (API 29). Set explicitly rather than
+        // using Flutter's default so the floor is a deliberate product
+        // decision: notification-channel, media-session and SAF behaviors
+        // below are all verified against API 29+.
+        minSdk = 29
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
